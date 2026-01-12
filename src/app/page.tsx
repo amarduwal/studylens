@@ -1,65 +1,217 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useCallback } from 'react';
+import { Camera, Sparkles, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { CameraCapture } from '@/components/scanner/camera-capture';
+import { ImageUpload } from '@/components/scanner/image-upload';
+import { ImagePreview } from '@/components/scanner/image-preview';
+import { Header } from '@/components/layout/header';
+import { BottomNav } from '@/components/layout/bottom-nav';
+import { useScanStore } from '@/stores/scan-store';
+import { fileToBase64 } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
+
+export default function HomePage() {
+  const router = useRouter();
+  const [showCamera, setShowCamera] = useState(false);
+
+  const {
+    currentImage,
+    currentImageFile,
+    isAnalyzing,
+    error,
+    selectedLanguage,
+    setCurrentImage,
+    setCurrentResult,
+    setIsAnalyzing,
+    setError,
+    clearCurrentScan,
+  } = useScanStore();
+
+  const handleImageCapture = useCallback(
+    (imageData: string, file: File) => {
+      setCurrentImage(imageData, file);
+      setShowCamera(false);
+    },
+    [setCurrentImage]
+  );
+
+  const handleAnalyze = async () => {
+    if (!currentImageFile) return;
+
+    setIsAnalyzing(true);
+    setError(null);
+
+    try {
+      const base64 = await fileToBase64(currentImageFile);
+
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: base64,
+          mimeType: currentImageFile.type,
+          language: selectedLanguage,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Store the image URL in the result
+        const resultWithImage = {
+          ...data.data,
+          imageUrl: currentImage,
+        };
+        setCurrentResult(resultWithImage);
+        router.push(`/results/${data.data.id}`);
+      } else {
+        setError(data.error?.message || 'Failed to analyze image');
+      }
+    } catch (err) {
+      console.error('Analysis error:', err);
+      setError('Network error. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Show fullscreen camera
+  if (showCamera) {
+    return (
+      <CameraCapture
+        onCapture={handleImageCapture}
+        onClose={() => setShowCamera(false)}
+      />
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+    <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
+      <Header />
+
+      <main className="flex-1 overflow-y-auto pb-20 md:pb-24">
+        <div className="mx-auto w-full max-w-2xl py-6 px-4">
+          <div className="space-y-6">
+            {/* Hero */}
+            <div className="text-center space-y-2">
+              <h1 className="text-2xl font-bold">
+                Understand Anything, Instantly
+              </h1>
+              <p className="text-[hsl(var(--muted-foreground))]">
+                Point your camera at any educational content and get instant
+                explanations
+              </p>
+            </div>
+
+            {/* Image capture area */}
+            <div className="space-y-4">
+              {currentImage ? (
+                <>
+                  <ImagePreview
+                    src={currentImage}
+                    onClear={clearCurrentScan}
+                    onRetake={() => setShowCamera(true)}
+                  />
+
+                  {/* Error message */}
+                  {error && (
+                    <div className="rounded-lg bg-red-500/10 p-4 text-center text-sm text-red-500">
+                      {error}
+                    </div>
+                  )}
+
+                  {/* Analyze button */}
+                  <Button
+                    onClick={handleAnalyze}
+                    disabled={isAnalyzing}
+                    className="w-full h-14 text-lg"
+                    size="lg"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-5 w-5" />
+                        Explain This
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {/* Camera button */}
+                  <Button
+                    onClick={() => setShowCamera(true)}
+                    className="w-full h-32 flex-col gap-3"
+                    variant="outline"
+                  >
+                    <Camera className="h-10 w-10" />
+                    <span className="text-lg font-medium">Take a Photo</span>
+                  </Button>
+
+                  {/* Divider */}
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-[hsl(var(--border))]" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-[hsl(var(--background))] px-2 text-[hsl(var(--muted-foreground))]">
+                        or
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Upload area */}
+                  <ImageUpload onImageSelect={handleImageCapture} />
+                </>
+              )}
+            </div>
+
+            {/* Tips */}
+            <div className="rounded-xl bg-[hsl(var(--muted))]/50 p-4 space-y-3">
+              <h3 className="font-medium">📸 Tips for best results</h3>
+              <ul className="text-sm text-[hsl(var(--muted-foreground))] space-y-2">
+                <li>• Ensure good lighting</li>
+                <li>• Keep the content in focus</li>
+                <li>• Capture the entire problem or content</li>
+                <li>• Avoid glare and shadows</li>
+              </ul>
+            </div>
+
+            {/* Supported subjects */}
+            <div className="rounded-xl border border-[hsl(var(--border))] p-4 space-y-3">
+              <h3 className="font-medium">📚 What can I scan?</h3>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  'Math Problems',
+                  'Physics',
+                  'Chemistry',
+                  'Biology',
+                  'History',
+                  'Geography',
+                  'Code',
+                  'Diagrams',
+                  'Handwritten Notes',
+                ].map((subject) => (
+                  <span
+                    key={subject}
+                    className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1 text-xs"
+                  >
+                    {subject}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </main>
+
+      <BottomNav />
     </div>
   );
 }
