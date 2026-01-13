@@ -1,25 +1,33 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
-import { Globe } from 'lucide-react';
+import { useSession, signOut } from 'next-auth/react';
+import { Globe, User, LogOut, Crown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useScanStore } from '@/stores/scan-store';
 import { LANGUAGES, SupportedLanguage } from '@/types';
+import Image from 'next/image';
 
 export function Header() {
+  const { data: session, status } = useSession();
   const { selectedLanguage, setSelectedLanguage } = useScanStore();
 
   return (
     <header className="sticky top-0 z-40 border-b border-[hsl(var(--border))] bg-[hsl(var(--background))]/95 backdrop-blur supports-backdrop-filter:bg-[hsl(var(--background))]/60">
       <div className="mx-auto w-full max-w-2xl flex h-14 items-center px-4">
+        {/* Logo */}
         <Link href="/" className="flex items-center gap-2 mr-auto">
-          <Image
-            src="/icon-192.png"
-            alt="Logo"
-            fill
-            className="object-contain"
-          />
-          <span className="font-bold text-xl">StudyLens</span>
+          <div className="relative h-8 w-8 sm:h-10 sm:w-10">
+            <Image
+              src="/icon-192.png"
+              alt="StudyLens"
+              fill
+              className="object-contain"
+              priority
+            />
+          </div>
+
+          <span className="font-bold text-xl hidden sm:inline">StudyLens</span>
         </Link>
 
         <div className="flex items-center gap-2">
@@ -30,7 +38,7 @@ export function Header() {
               onChange={(e) =>
                 setSelectedLanguage(e.target.value as SupportedLanguage)
               }
-              className="appearance-none rounded-lg border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-1.5 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+              className="appearance-none rounded-lg border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
             >
               {Object.entries(LANGUAGES).map(([code, lang]) => (
                 <option key={code} value={code}>
@@ -38,8 +46,89 @@ export function Header() {
                 </option>
               ))}
             </select>
-            <Globe className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 pointer-events-none text-[hsl(var(--muted-foreground))]" />
+            <Globe className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 pointer-events-none text-[hsl(var(--muted-foreground))]" />
           </div>
+
+          {/* Auth Buttons */}
+          {status === 'loading' ? (
+            <div className="w-8 h-8 rounded-full bg-[hsl(var(--muted))] animate-pulse" />
+          ) : session?.user ? (
+            <div className="flex items-center gap-2">
+              {/* Plan Badge */}
+              {session.user.subscriptionTier === 'premium' && (
+                <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-medium">
+                  <Crown className="h-3 w-3" />
+                  Pro
+                </span>
+              )}
+
+              {/* User Menu */}
+              <div className="relative group">
+                <button className="flex items-center gap-2">
+                  {session.user.image ? (
+                    <Image
+                      src={session.user.image}
+                      alt={session.user.name || 'User'}
+                      fill
+                      className="w-8 h-8 rounded-full"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-[hsl(var(--primary))] flex items-center justify-center text-[hsl(var(--primary-foreground))]">
+                      <User className="h-4 w-4" />
+                    </div>
+                  )}
+                </button>
+
+                {/* Dropdown */}
+                <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                  <div className="p-3 border-b border-[hsl(var(--border))]">
+                    <p className="font-medium text-sm truncate">
+                      {session.user.name}
+                    </p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] truncate">
+                      {session.user.email}
+                    </p>
+                  </div>
+                  <div className="p-2">
+                    <Link
+                      href="/profile"
+                      className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+                    >
+                      <User className="h-4 w-4" />
+                      Profile
+                    </Link>
+                    {session.user.subscriptionTier !== 'premium' && (
+                      <Link
+                        href="/pricing"
+                        className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-[hsl(var(--muted))] transition-colors text-amber-600"
+                      >
+                        <Crown className="h-4 w-4" />
+                        Upgrade to Pro
+                      </Link>
+                    )}
+                    <button
+                      onClick={() => signOut()}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-[hsl(var(--muted))] transition-colors text-red-500"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Link href="/login">
+                <Button variant="ghost" size="sm">
+                  Sign In
+                </Button>
+              </Link>
+              <Link href="/register" className="hidden sm:block">
+                <Button size="sm">Sign Up</Button>
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </header>

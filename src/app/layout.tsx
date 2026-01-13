@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import { AuthProvider } from '@/components/providers/auth-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -34,8 +35,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen flex flex-col">
-        <div className="flex-1 flex flex-col">{children}</div>
+      <body className={`min-h-screen flex flex-col ${inter.className}`}>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

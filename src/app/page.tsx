@@ -11,6 +11,7 @@ import { BottomNav } from '@/components/layout/bottom-nav';
 import { useScanStore } from '@/stores/scan-store';
 import { fileToBase64 } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
+import { UsageDisplay } from '@/components/usage-display';
 
 export default function HomePage() {
   const router = useRouter();
@@ -182,6 +183,9 @@ export default function HomePage() {
                 <li>• Avoid glare and shadows</li>
               </ul>
             </div>
+
+            {/* Usage Display */}
+            <UsageDisplay />
 
             {/* Supported subjects */}
             <div className="rounded-xl border border-[hsl(var(--border))] p-4 space-y-3">
