@@ -2,12 +2,52 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useScanStore } from '@/stores/scan-store';
-import { User, Languages, Settings } from 'lucide-react';
+import { User, Languages, Settings, LogIn } from 'lucide-react';
+import { useSession, signIn } from 'next-auth/react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
 
 export default function ProfilePage() {
-  const { scanHistory, getBookmarkedScans, selectedLanguage } = useScanStore();
-  const bookmarkedScans = getBookmarkedScans();
+  const { data: session, status } = useSession();
+  const [stats, setStats] = useState<{
+    totalScans: number;
+    totalBookmarks: number;
+    currentStreak: number;
+    longestStreak: number;
+  } | null>(null);
+  const [userInfo, setUserInfo] = useState<{
+    name?: string;
+    email?: string;
+    avatarUrl?: string;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadStats() {
+      if (!session?.user?.id) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/user/stats');
+        const data = await res.json();
+        if (data.success && data.data) {
+          setStats(data.data.stats);
+          setUserInfo(data.data.user);
+        }
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadStats();
+  }, [session]);
+
+  const isGuest = status === 'unauthenticated';
 
   return (
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
@@ -16,14 +56,37 @@ export default function ProfilePage() {
           <div className="space-y-6">
             {/* Header */}
             <div className="text-center">
-              <div className="w-20 h-20 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center mx-auto mb-4">
-                <User className="h-10 w-10 text-[hsl(var(--primary))]" />
+              <div className="flex items-center gap-2 mr-auto">
+                <div className="relative w-20 h-20 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center mx-auto mb-4">
+                  {userInfo?.avatarUrl ? (
+                    <Image
+                      src={userInfo.avatarUrl}
+                      alt="Profile"
+                      fill
+                      className="object-contain"
+                      unoptimized
+                    />
+                  ) : (
+                    <User className="h-10 w-10 text-[hsl(var(--primary))]" />
+                  )}
+                </div>
               </div>
-              <h1 className="text-2xl font-bold mb-1">Guest User</h1>
+              <h1 className="text-2xl font-bold mb-1">
+                {isGuest
+                  ? 'Guest User'
+                  : userInfo?.name || session?.user?.name || 'User'}
+              </h1>
               <p className="text-[hsl(var(--muted-foreground))]">
-                Sign in to sync your data across devices
+                {isGuest
+                  ? 'Sign in to sync your data across devices'
+                  : userInfo?.email || session?.user?.email}
               </p>
-              <Button className="mt-4">Sign In</Button>
+              {isGuest && (
+                <Button className="mt-4" onClick={() => signIn()}>
+                  <LogIn className="h-4 w-4 mr-2" />
+                  Sign In
+                </Button>
+              )}
             </div>
 
             {/* Stats */}
@@ -31,7 +94,7 @@ export default function ProfilePage() {
               <Card>
                 <CardContent className="p-4 text-center">
                   <div className="text-3xl font-bold text-[hsl(var(--primary))]">
-                    {scanHistory.length}
+                    {isLoading ? '...' : stats?.totalScans || 0}
                   </div>
                   <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
                     Total Scans
@@ -41,7 +104,7 @@ export default function ProfilePage() {
               <Card>
                 <CardContent className="p-4 text-center">
                   <div className="text-3xl font-bold text-[hsl(var(--primary))]">
-                    {bookmarkedScans.length}
+                    {isLoading ? '...' : stats?.totalBookmarks || 0}
                   </div>
                   <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
                     Bookmarked
@@ -49,6 +112,37 @@ export default function ProfilePage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Streak Card */}
+            {!isGuest && stats && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    🔥 Study Streak
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex justify-around text-center">
+                    <div>
+                      <div className="text-2xl font-bold">
+                        {stats.currentStreak}
+                      </div>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Current
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">
+                        {stats.longestStreak}
+                      </div>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Longest
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Settings */}
             <Card>
@@ -59,15 +153,18 @@ export default function ProfilePage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
+                <Link
+                  href="/settings"
+                  className="flex items-center justify-between hover:bg-[hsl(var(--muted))]/50 p-2 rounded-lg transition-colors"
+                >
                   <div className="flex items-center gap-2">
                     <Languages className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-                    <span className="text-sm">Language</span>
+                    <span className="text-sm">Language & Preferences</span>
                   </div>
                   <span className="text-sm text-[hsl(var(--muted-foreground))]">
-                    {selectedLanguage.toUpperCase()}
+                    →
                   </span>
-                </div>
+                </Link>
               </CardContent>
             </Card>
 

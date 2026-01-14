@@ -1,22 +1,49 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Clock, Bookmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useScanStore } from '@/stores/scan-store';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
+import { useScanStore } from '@/stores/scan-store';
+import { useToast } from '@/components/ui/toast';
 
 export default function HistoryPage() {
-  const { scanHistory, toggleBookmark, isBookmarked } = useScanStore();
+  const {
+    scanHistory,
+    isLoading,
+    hasFetched,
+    fetchScansFromDB,
+    toggleBookmarkDB,
+    isBookmarked,
+    sessionId,
+  } = useScanStore();
+  const { showToast, ToastComponent } = useToast();
+
+  useEffect(() => {
+    if (!hasFetched) {
+      fetchScansFromDB(sessionId);
+    }
+  }, [hasFetched, sessionId, fetchScansFromDB]);
+
   const [filter, setFilter] = useState<'all' | 'bookmarked'>('all');
 
   const filteredScans =
     filter === 'bookmarked'
       ? scanHistory.filter((scan) => isBookmarked(scan.id))
       : scanHistory;
+
+  const handleBookmark = async (scanId: string) => {
+    if (!scanId) return;
+
+    const result = await toggleBookmarkDB(scanId); // Changed
+    showToast(
+      result ? 'Removed from bookmarks' : 'Added to bookmarks',
+      'success'
+    );
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
@@ -58,8 +85,17 @@ export default function HistoryPage() {
               </button>
             </div>
 
+            {isLoading && (
+              <div className="text-center py-12">
+                <div className="animate-spin h-8 w-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-[hsl(var(--muted-foreground))]">
+                  Loading history...
+                </p>
+              </div>
+            )}
+
             {/* Scan List */}
-            {filteredScans.length === 0 ? (
+            {!isLoading && filteredScans.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">
                   {filter === 'bookmarked' ? '🔖' : '📚'}
@@ -80,7 +116,7 @@ export default function HistoryPage() {
                   </Link>
                 )}
               </div>
-            ) : (
+            ) : !isLoading ? (
               <div>
                 {filteredScans.map((scan) => (
                   <Link
@@ -119,9 +155,8 @@ export default function HistoryPage() {
                                 variant="ghost"
                                 size="icon"
                                 className="shrink-0 -mt-1 -mr-2"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  toggleBookmark(scan.id);
+                                onClick={() => {
+                                  handleBookmark(scan.id);
                                 }}
                               >
                                 <Bookmark
@@ -164,10 +199,12 @@ export default function HistoryPage() {
                   </Link>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </main>
+
+      {ToastComponent}
     </div>
   );
 }

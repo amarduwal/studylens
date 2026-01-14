@@ -119,7 +119,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         // Assign free plan
         const freePlan = await db.query.pricingPlans.findFirst({
-          where: eq(pricingPlans.slug, "free"),  // Changed: name → slug
+          where: eq(pricingPlans.slug, "free"),
         });
 
         if (freePlan) {

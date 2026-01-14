@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ScanResult, ConversationMessage, SupportedLanguage } from "@/types";
-import { nanoid } from "nanoid";
+import { v4 as uuidv4 } from 'uuid';
+import { Scan } from "@/db";
 
 interface ScanState {
   // Current scan
@@ -10,6 +11,8 @@ interface ScanState {
   currentResult: ScanResult | null;
   isAnalyzing: boolean;
   error: string | null;
+  isLoading: boolean;
+  hasFetched: boolean;
 
   // Conversation
   messages: ConversationMessage[];
@@ -21,7 +24,7 @@ interface ScanState {
 
   // History (for persistence)
   scanHistory: ScanResult[];
-  bookmarkedScans: Set<string>; // Store scan IDs
+  // bookmarkedScans: Set<string>; // Store scan IDs
 
   // Actions
   setCurrentImage: (image: string | null, file?: File | null) => void;
@@ -33,11 +36,15 @@ interface ScanState {
   clearMessages: () => void;
   setIsLoadingResponse: (isLoading: boolean) => void;
   addToHistory: (result: ScanResult) => void;
-  toggleBookmark: (scanId: string) => void;
   isBookmarked: (scanId: string) => boolean;
   getBookmarkedScans: () => ScanResult[];
   clearCurrentScan: () => void;
   reset: () => void;
+  fetchScansFromDB: (sessionId: string) => Promise<void>;
+  fetchBookmarksFromDB: (sessionId: string) => Promise<ScanResult[]>;
+  toggleBookmarkDB: (scanId: string, sessionId?: string) => Promise<boolean>;
+  getScanById: (scanId: string, sessionId: string) => Promise<ScanResult | null>;
+
 }
 
 export const useScanStore = create<ScanState>()(
@@ -52,9 +59,11 @@ export const useScanStore = create<ScanState>()(
       messages: [],
       isLoadingResponse: false,
       selectedLanguage: "en",
-      sessionId: nanoid(),
+      sessionId: uuidv4(),
       scanHistory: [],
       bookmarkedScans: new Set(),
+      isLoading: false,
+      hasFetched: false,
 
       // Actions
       setCurrentImage: (image, file = null) =>
@@ -89,7 +98,7 @@ export const useScanStore = create<ScanState>()(
             ...state.messages,
             {
               ...message,
-              id: nanoid(),
+              id: uuidv4(),
               timestamp: new Date(),
             },
           ],
@@ -104,27 +113,16 @@ export const useScanStore = create<ScanState>()(
           scanHistory: [result, ...state.scanHistory].slice(0, 50),
         })),
 
-      toggleBookmark: (scanId) =>
-        set((state) => {
-          const newBookmarks = new Set(state.bookmarkedScans);
-          if (newBookmarks.has(scanId)) {
-            newBookmarks.delete(scanId);
-          } else {
-            newBookmarks.add(scanId);
-          }
-          return { bookmarkedScans: newBookmarks };
-        }),
 
       isBookmarked: (scanId) => {
-        return get().bookmarkedScans.has(scanId);
+        const scan = get().scanHistory.find(s => s.id === scanId);
+        return scan?.isBookmarked || false;
       },
 
       getBookmarkedScans: () => {
-        const state = get();
-        return state.scanHistory.filter((scan) =>
-          state.bookmarkedScans.has(scan.id)
-        );
+        return get().scanHistory.filter((scan) => scan.isBookmarked);
       },
+
 
       clearCurrentScan: () =>
         set({
@@ -145,6 +143,72 @@ export const useScanStore = create<ScanState>()(
           messages: [],
           isLoadingResponse: false,
         }),
+
+      fetchScansFromDB: async (sessionId: string) => {
+        set({ isLoading: true });
+        try {
+          const res = await fetch(`/api/scans?sessionId=${sessionId}`);
+          const data = await res.json();
+
+          if (data.success && data.data) {
+            set({ scanHistory: data.data, hasFetched: true });
+          }
+        } catch (error) {
+          console.error("Failed to fetch scans:", error);
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      fetchBookmarksFromDB: async (sessionId: string) => {
+        try {
+          const res = await fetch(`/api/bookmarks?sessionId=${sessionId}`);
+          const data = await res.json();
+          return data.success ? data.data || [] : [];
+        } catch (error) {
+          console.error("Failed to fetch bookmarks:", error);
+          return [];
+        }
+      },
+
+      toggleBookmarkDB: async (scanId: string, sessionId?: string) => {
+        try {
+          const res = await fetch(`/api/bookmarks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              scanId,
+              sessionId: sessionId || get().sessionId
+            }),
+          });
+
+          if (res.ok) {
+            // Refresh scans to update bookmark status
+            await get().fetchScansFromDB(get().sessionId);
+            return true;
+          }
+          return false;
+        } catch (error) {
+          console.error("Failed to toggle bookmark:", error);
+          return false;
+        }
+      },
+
+      getScanById: async (scanId: string, sessionId: string) => {
+        // Check local first
+        const local = get().scanHistory.find((s) => s.id === scanId);
+        if (local) return local;
+
+        // Fetch from DB
+        try {
+          const res = await fetch(`/api/scans/${scanId}`);
+          const data = await res.json();
+          return data.success ? data.data : null;
+        } catch {
+          return null;
+        }
+      },
+
     }),
     {
       name: "studylens-storage",
@@ -152,14 +216,7 @@ export const useScanStore = create<ScanState>()(
         scanHistory: state.scanHistory,
         selectedLanguage: state.selectedLanguage,
         sessionId: state.sessionId,
-        bookmarkedScans: Array.from(state.bookmarkedScans), // Convert Set to Array for storage
       }),
-      // Restore Set from Array
-      onRehydrateStorage: () => (state) => {
-        if (state && Array.isArray(state.bookmarkedScans)) {
-          state.bookmarkedScans = new Set(state.bookmarkedScans as unknown as string[]);
-        }
-      },
     }
   )
 );

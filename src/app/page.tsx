@@ -16,16 +16,15 @@ import { UsageDisplay } from '@/components/usage-display';
 export default function HomePage() {
   const router = useRouter();
   const [showCamera, setShowCamera] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const {
     currentImage,
     currentImageFile,
-    isAnalyzing,
     error,
     selectedLanguage,
     setCurrentImage,
     setCurrentResult,
-    setIsAnalyzing,
     setError,
     clearCurrentScan,
   } = useScanStore();
@@ -38,10 +37,10 @@ export default function HomePage() {
     [setCurrentImage]
   );
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = useCallback(async () => {
     if (!currentImageFile) return;
 
-    setIsAnalyzing(true);
+    setAnalyzing(true);
     setError(null);
 
     try {
@@ -74,9 +73,16 @@ export default function HomePage() {
       console.error('Analysis error:', err);
       setError('Network error. Please try again.');
     } finally {
-      setIsAnalyzing(false);
+      setAnalyzing(false);
     }
-  };
+  }, [
+    currentImageFile,
+    currentImage,
+    selectedLanguage,
+    setCurrentResult,
+    setError,
+    router,
+  ]);
 
   // Show fullscreen camera
   if (showCamera) {
@@ -126,11 +132,11 @@ export default function HomePage() {
                   {/* Analyze button */}
                   <Button
                     onClick={handleAnalyze}
-                    disabled={isAnalyzing}
+                    disabled={!currentImageFile || analyzing}
                     className="w-full h-14 text-lg"
                     size="lg"
                   >
-                    {isAnalyzing ? (
+                    {analyzing ? (
                       <>
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                         Analyzing...
@@ -204,7 +210,7 @@ export default function HomePage() {
                 ].map((subject) => (
                   <span
                     key={subject}
-                    className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1 text-xs"
+                    className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1 text-xs text-white"
                   >
                     {subject}
                   </span>

@@ -6,9 +6,14 @@ import { auth } from "./auth";
 export interface UsageLimits {
   dailyScanLimit: number;
   monthlyScanLimit: number | null;
+  maxImageSizeMb: number | null;
+  maxFollowupQuestions: number | null;
+  maxPracticeProblems: number | null;
   maxBookmarks: number | null;
   maxHistoryDays: number | null;
   features: string[];  // Changed: now JSONB array
+  canAccessPremiumSubjects: boolean;
+  canExportPdf: boolean;
 }
 
 export interface CurrentUsage {
@@ -39,9 +44,14 @@ export async function getPlanLimits(
   const defaultLimits: UsageLimits = {
     dailyScanLimit: guestPlan?.dailyScanLimit ?? 3,
     monthlyScanLimit: guestPlan?.monthlyScanLimit ?? null,
+    maxImageSizeMb: 5,
+    maxFollowupQuestions: 2,
+    maxPracticeProblems: 1,
     maxBookmarks: guestPlan?.maxBookmarks ?? 5,
     maxHistoryDays: guestPlan?.maxHistoryDays ?? 0,
     features: (guestPlan?.features as string[]) ?? [],
+    canAccessPremiumSubjects: false,
+    canExportPdf: false,
   };
 
   if (!userId) {
@@ -65,18 +75,28 @@ export async function getPlanLimits(
     return {
       dailyScanLimit: freePlan?.dailyScanLimit ?? 10,
       monthlyScanLimit: freePlan?.monthlyScanLimit ?? null,
+      maxImageSizeMb: defaultLimits.maxImageSizeMb,
+      maxFollowupQuestions: defaultLimits.maxFollowupQuestions,
+      maxPracticeProblems: defaultLimits.maxPracticeProblems,
       maxBookmarks: freePlan?.maxBookmarks ?? 20,
       maxHistoryDays: freePlan?.maxHistoryDays ?? 7,
       features: (freePlan?.features as string[]) ?? [],
+      canAccessPremiumSubjects: false,
+      canExportPdf: false,
     };
   }
 
   return {
     dailyScanLimit: userSub.plan.dailyScanLimit ?? -1,  // NULL = unlimited
     monthlyScanLimit: userSub.plan.monthlyScanLimit,
+    maxImageSizeMb: 5,
+    maxFollowupQuestions: 2,
+    maxPracticeProblems: 1,
     maxBookmarks: userSub.plan.maxBookmarks,
     maxHistoryDays: userSub.plan.maxHistoryDays,
     features: (userSub.plan.features as string[]) ?? [],
+    canAccessPremiumSubjects: true,
+    canExportPdf: true,
   };
 }
 

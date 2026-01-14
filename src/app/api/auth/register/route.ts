@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/db";
-import { users, userPreferences, subscriptions, pricingPlans } from "@/db/schema";
+import { users, userPreferences, subscriptions, pricingPlans, studyStreaks } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -54,11 +54,16 @@ export async function POST(request: NextRequest) {
     // Create preferences
     await db.insert(userPreferences).values({
       userId: newUser.id,
-    });
+    }).onConflictDoNothing();
+
+    // Create streak record
+    await db.insert(studyStreaks).values({
+      userId: newUser.id
+    }).onConflictDoNothing();
 
     // Assign free plan
     const freePlan = await db.query.pricingPlans.findFirst({
-      where: eq(pricingPlans.name, "free"),
+      where: eq(pricingPlans.slug, "free"),
     });
 
     if (freePlan) {
@@ -66,7 +71,7 @@ export async function POST(request: NextRequest) {
         userId: newUser.id,
         planId: freePlan.id,
         status: "active",
-      });
+      }).onConflictDoNothing();
     }
 
     return NextResponse.json({

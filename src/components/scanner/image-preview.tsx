@@ -27,7 +27,7 @@ export function ImagePreview({ src, onClear, onRetake }: ImagePreviewProps) {
           <Button
             variant="secondary"
             size="icon"
-            className="h-9 w-9 rounded-full bg-white/90 shadow-md hover:bg-white"
+            className="h-9 w-9 rounded-full bg-amber-700 shadow-md hover:bg-black"
             onClick={onRetake}
           >
             <RotateCcw className="h-4 w-4" />
@@ -36,7 +36,7 @@ export function ImagePreview({ src, onClear, onRetake }: ImagePreviewProps) {
         <Button
           variant="secondary"
           size="icon"
-          className="h-9 w-9 rounded-full bg-white/90 shadow-md hover:bg-white"
+          className="h-9 w-9 rounded-full bg-amber-700 shadow-md hover:bg-black"
           onClick={onClear}
         >
           <X className="h-4 w-4" />

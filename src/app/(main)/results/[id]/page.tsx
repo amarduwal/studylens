@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Bookmark, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { useScanStore } from '@/stores/scan-store';
 import { shareScan, canShare } from '@/lib/share';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
+import { ScanResult } from '@/types';
 
 export default function ResultsPage() {
   const params = useParams();
@@ -19,22 +20,47 @@ export default function ResultsPage() {
   const scanId = params.id as string;
   const { showToast, ToastComponent } = useToast();
 
-  const { currentResult, scanHistory, toggleBookmark, isBookmarked } =
-    useScanStore();
+  const {
+    currentResult,
+    scanHistory,
+    getScanById,
+    toggleBookmarkDB,
+    isBookmarked,
+    sessionId,
+  } = useScanStore();
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Try to find result in store or history
-  const result =
-    currentResult?.id === scanId
-      ? currentResult
-      : scanHistory.find((s) => s.id === scanId);
+  useEffect(() => {
+    async function loadScan() {
+      // Try local first
+      const local =
+        currentResult?.id === scanId
+          ? currentResult
+          : scanHistory.find((s) => s.id === scanId);
+
+      if (local) {
+        setResult(local);
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch from DB
+      const dbScan = await getScanById(scanId, sessionId);
+      setResult(dbScan);
+      setIsLoading(false);
+    }
+
+    loadScan();
+  }, [scanId, currentResult, scanHistory, getScanById, sessionId]);
 
   const bookmarked = result ? isBookmarked(result.id) : false;
 
-  const handleBookmark = () => {
+  const handleBookmark = async () => {
     if (!result) return;
-    toggleBookmark(result.id);
+    const response = await toggleBookmarkDB(result.id); // Changed
     showToast(
-      bookmarked ? 'Removed from bookmarks' : 'Added to bookmarks',
+      response ? 'Removed from bookmarks' : 'Added to bookmarks',
       'success'
     );
   };
@@ -55,7 +81,7 @@ export default function ResultsPage() {
 
   if (!result) {
     return (
-      <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
+      <div className="flex min-h-screen items-center justify-center flex-col bg-[hsl(var(--background))]">
         <div className="container max-w-2xl py-12 text-center">
           <div className="mb-8">
             <span className="text-6xl">🔍</span>
@@ -73,18 +99,26 @@ export default function ResultsPage() {
   }
 
   const originalContext = `
-Subject: ${result.subject}
-Topic: ${result.topic}
-Content: ${result.extractedText}
-Answer: ${result.explanation.simpleAnswer}
-Concept: ${result.explanation.concept}
-  `.trim();
+    Subject: ${result.subject}
+    Topic: ${result.topic}
+    Content: ${result.extractedText}
+    Answer: ${result.explanation.simpleAnswer}
+    Concept: ${result.explanation.concept}
+      `.trim();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-50 bg-[hsl(var(--background))]/95 backdrop-blur supports-backdrop-filter:bg-[hsl(var(--background))]/80 border-b border-[hsl(var(--border))] shadow-sm">
-        <div className="mx-auto w-full max-w-2xl py-6 px-4">
+      <div className="top-0 bg-[hsl(var(--background))]/95 backdrop-blur supports-backdrop-filter:bg-[hsl(var(--background))]/80 border-b border-[hsl(var(--border))] shadow-sm">
+        <div className="mx-auto w-full max-w-2xl">
           <div className="flex items-center justify-between h-14 px-4">
             <Button
               variant="ghost"
@@ -147,6 +181,7 @@ Concept: ${result.explanation.concept}
             <FollowUpChat
               scanId={result.id}
               originalContext={originalContext}
+              practiceQuestions={result.explanation?.practiceQuestions}
             />
           </div>
         </div>

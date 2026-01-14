@@ -11,8 +11,10 @@ import {
   jsonb,
   decimal,
   date,
+  bigint,
+  check,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters";
 
 // ============ ENUMS ============
@@ -53,7 +55,25 @@ export const educationLevelEnum = pgEnum("education_level", [
   "undergraduate",
   "graduate",
   "professional",
+  "other",
 ]);
+
+export const oauthProviderEnum = pgEnum("oauth_provider", [
+  "google",
+  "github",
+  "facebook",
+  "apple",
+]);
+
+export const difficultyLevelEnum = pgEnum("difficulty_level", [
+  'elementary',
+  'easy',
+  'medium',
+  'hard',
+  'advanced',
+  'expert'
+]);
+
 
 // ============ LANGUAGES ============
 
@@ -69,24 +89,57 @@ export const languages = pgTable("languages", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// ============ AUTH TABLES (NextAuth.js Compatible) ============
+// ============ SUBJECTS & TOPICS ============
+
+export const subjects = pgTable("subjects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 100 }).notNull().unique(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  icon: varchar("icon", { length: 50 }),
+  description: text("description"),
+  color: varchar("color", { length: 7 }),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const topics = pgTable("topics", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  subjectId: uuid("subject_id").references(() => subjects.id, {
+    onDelete: "cascade"
+  }).notNull(),
+  name: varchar("name", { length: 200 }).notNull(),
+  slug: varchar("slug", { length: 200 }).notNull(),
+  description: text("description"),
+  difficulty: difficultyLevelEnum("difficulty").default("medium"),
+  educationLevel: educationLevelEnum("education_level").default("high"),
+  keywords: text("keywords").array(),
+  scanCount: integer("scan_count").default(0),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ============ AUTH TABLES ============
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
 
   // Basic Info
-  email: varchar("email", { length: 255 }).unique(),  // Remove .notNull() - can be NULL for OAuth-only
+  email: varchar("email", { length: 255 }).unique(),
   emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
   passwordHash: varchar("password_hash", { length: 255 }),
 
   // Profile
   name: varchar("name", { length: 100 }),
   username: varchar("username", { length: 50 }).unique(),
-  avatarUrl: varchar("avatar_url", { length: 500 }),  // Changed from image
+  avatarUrl: varchar("avatar_url", { length: 500 }),
   bio: text("bio"),
   dateOfBirth: date("date_of_birth"),
 
-  // Preferences (on user table now)
+  // Preferences
   preferredLanguageId: uuid("preferred_language_id").references(() => languages.id, { onDelete: "set null" }),
   educationLevel: educationLevelEnum("education_level").default("high"),
   timezone: varchar("timezone", { length: 50 }).default("UTC"),
@@ -110,39 +163,67 @@ export const users = pgTable("users", {
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),  // Soft delete
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
 export const accounts = pgTable(
   "accounts",
   {
+    id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    type: varchar("type", { length: 255 }).$type<AdapterAccountType>().notNull(),
-    provider: varchar("provider", { length: 255 }).notNull(),
+
+    // OAuth Provider Info
+    type: varchar("type", { length: 50 }).notNull(),
+    provider: oauthProviderEnum("provider").notNull(),
     providerAccountId: varchar("provider_account_id", { length: 255 }).notNull(),
-    refresh_token: text("refresh_token"),
-    access_token: text("access_token"),
-    expires_at: integer("expires_at"),
-    token_type: varchar("token_type", { length: 255 }),
-    scope: varchar("scope", { length: 255 }),
-    id_token: text("id_token"),
-    session_state: varchar("session_state", { length: 255 }),
+
+    // OAuth Tokens
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    expiresAt: bigint("expires_at", { mode: "number" }),
+    tokenType: varchar("token_type", { length: 50 }),
+    scope: text("scope"),
+    idToken: text("id_token"),
+    sessionState: text("session_state"),
+
+    // Timestamps
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (account) => ({
-    compoundKey: primaryKey({
+    uniqueProviderAccount: primaryKey({
+      name: "unique_provider_account",
       columns: [account.provider, account.providerAccountId],
     }),
   })
 );
 
 export const sessions = pgTable("sessions", {
-  sessionToken: varchar("session_token", { length: 255 }).primaryKey(),
+  id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  expires: timestamp("expires", { mode: "date" }).notNull(),
+  sessionToken: varchar("session_token", { length: 255 }).notNull().unique(),
+
+  // Session Info
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  deviceType: varchar("device_type", { length: 50 }),
+  browser: varchar("browser", { length: 50 }),
+  os: varchar("os", { length: 50 }),
+  country: varchar("country", { length: 2 }),
+  city: varchar("city", { length: 100 }),
+
+  // Status
+  isValid: boolean("is_valid").default(true),
+
+  // Timestamps
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const verificationTokens = pgTable(
@@ -166,7 +247,7 @@ export const pricingPlans = pgTable("pricing_plans", {
 
   // Plan Info
   name: varchar("name", { length: 50 }).notNull(),
-  slug: varchar("slug", { length: 50 }).notNull().unique(),  // Changed from displayName
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
   description: text("description"),
 
   // Pricing
@@ -175,22 +256,24 @@ export const pricingPlans = pgTable("pricing_plans", {
   currency: varchar("currency", { length: 3 }).default("USD"),
 
   // Limits
-  dailyScanLimit: integer("daily_scan_limit"),  // NULL = unlimited
+  dailyScanLimit: integer("daily_scan_limit"),
   monthlyScanLimit: integer("monthly_scan_limit"),
   maxBookmarks: integer("max_bookmarks"),
   maxHistoryDays: integer("max_history_days"),
 
-  // Features (JSON for flexibility)
+  // Features
   features: jsonb("features").default([]),
 
   // Stripe
   stripePriceIdMonthly: varchar("stripe_price_id_monthly", { length: 100 }),
   stripePriceIdYearly: varchar("stripe_price_id_yearly", { length: 100 }),
 
-  // Meta
+  // Status
   isActive: boolean("is_active").default(true),
   isFeatured: boolean("is_featured").default(false),
   sortOrder: integer("sort_order").default(0),
+
+  // Timestamps
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -233,17 +316,26 @@ export const userPreferences = pgTable("user_preferences", {
 
 // ============ DAILY USAGE TRACKING ============
 
-export const dailyUsage = pgTable("daily_usage", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-  sessionId: varchar("session_id", { length: 100 }),
-  usageDate: date("usage_date").notNull().defaultNow(),
-  scanCount: integer("scan_count").default(0).notNull(),
-  messageCount: integer("followup_count").default(0).notNull(),
-  practiceCount: integer("practice_count").default(0).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const dailyUsage = pgTable(
+  "daily_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    sessionId: varchar("session_id", { length: 100 }),
+    usageDate: date("usage_date").notNull().defaultNow(),
+    scanCount: integer("scan_count").default(0).notNull(),
+    messageCount: integer("message_count").default(0).notNull(),
+    practiceCount: integer("practice_count").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueUserDate: check(
+      "user_or_session_required",
+      sql`(user_id IS NOT NULL OR session_id IS NOT NULL)`
+    ),
+  })
+);
 
 // ============ SUBSCRIPTIONS ============
 
@@ -286,19 +378,112 @@ export const subscriptions = pgTable("subscriptions", {
 export const scans = pgTable("scans", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-  sessionId: varchar("session_id", { length: 100 }),
-  imageUrl: text("image_url").notNull(),
+  sessionId: varchar("session_id", { length: 100 }).notNull(),
+
+  // Content Classification
   contentType: contentTypeEnum("content_type").default("other"),
-  subject: varchar("subject", { length: 100 }),
-  topic: varchar("topic", { length: 200 }),
+  subjectId: uuid("subject_id"), // Note: references subjects table (not included in schema)
+  topicId: uuid("topic_id"),     // Note: references topics table (not included in schema)
   difficulty: difficultyEnum("difficulty"),
+
+  // Extracted Content
   extractedText: text("extracted_text"),
-  explanation: jsonb("explanation"),
-  language: varchar("language", { length: 10 }).default("en"),
-  isBookmarked: boolean("is_bookmarked").default(false),
+  extractedLatex: text("extracted_latex"),
+  detectedLanguage: varchar("detected_language", { length: 10 }),
+
+  // AI Response
+  explanation: jsonb("explanation").notNull(),
+
+  // Settings used
+  explanationLanguage: varchar("explanation_language", { length: 10 }).default("en"),
+  targetEducationLevel: educationLevelEnum("target_education_level"),
+
+  // Metadata
+  processingTimeMs: integer("processing_time_ms"),
+  geminiModel: varchar("gemini_model", { length: 50 }),
+  tokenCount: integer("token_count"),
+
+  // Status
+  status: varchar("status", { length: 20 }).default("completed"),
+  errorMessage: text("error_message"),
+
+  // Timestamps
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),  // Add this
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// ============ BOOKMARKS ============
+
+export const bookmarks = pgTable(
+  "bookmarks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scanId: uuid("scan_id")
+      .notNull()
+      .references(() => scans.id, { onDelete: "cascade" }),
+
+    // Organization
+    folderName: varchar("folder_name", { length: 100 }),
+    tags: text("tags").array(),
+
+    // Notes
+    notes: text("notes"),
+
+    // Priority/Order
+    isPinned: boolean("is_pinned").default(false),
+    sortOrder: integer("sort_order").default(0),
+
+    // Timestamps
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueUserScan: primaryKey({
+      name: "unique_user_scan",
+      columns: [table.userId, table.scanId],
+    }),
+  })
+);
+
+// ============ SCAN IMAGES ============
+
+export const scanImages = pgTable("scan_images", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scanId: uuid("scan_id")
+    .notNull()
+    .references(() => scans.id, { onDelete: "cascade" }),
+
+  // Image Storage
+  storageProvider: varchar("storage_provider", { length: 20 }).default("r2"),
+  storageKey: varchar("storage_key", { length: 500 }).notNull(),
+  originalFilename: varchar("original_filename", { length: 255 }),
+
+  // Image Info
+  mimeType: varchar("mime_type", { length: 50 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+
+  // Variants
+  thumbnailKey: varchar("thumbnail_key", { length: 500 }),
+
+  // Hash for duplicate detection
+  fileHash: varchar("file_hash", { length: 64 }),
+
+  // Processing
+  isProcessed: boolean("is_processed").default(false),
+
+  // Order
+  sortOrder: integer("sort_order").default(0),
+
+  // Timestamps
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 
 // ============ CONVERSATIONS ============
 
@@ -306,11 +491,27 @@ export const conversations = pgTable("conversations", {
   id: uuid("id").primaryKey().defaultRandom(),
   scanId: uuid("scan_id")
     .notNull()
-    .unique()
     .references(() => scans.id, { onDelete: "cascade" }),
-  messages: jsonb("messages").default([]),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  sessionId: varchar("session_id", { length: 100 }).notNull(),
+
+  // Conversation Metadata
+  title: varchar("title", { length: 255 }),
+  summary: text("summary"),
+
+  // Stats
+  messageCount: integer("message_count").default(0),
+
+  // Context for AI
+  contextData: jsonb("context_data"),
+
+  // Status
+  isActive: boolean("is_active").default(true),
+
+  // Timestamps
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 // ============ STUDY STREAKS ============
@@ -330,7 +531,7 @@ export const studyStreaks = pgTable("study_streaks", {
   streakStartDate: date("streak_start_date"),
   lastActivityDate: date("last_activity_date"),
 
-  // Weekly Activity (for heatmap)
+  // Weekly Activity
   weeklyActivity: jsonb("weekly_activity").default({}),
 
   // All-time Stats
@@ -345,6 +546,19 @@ export const studyStreaks = pgTable("study_streaks", {
 
 export const languagesRelations = relations(languages, ({ many }) => ({
   users: many(users),
+}));
+
+export const subjectsRelations = relations(subjects, ({ many }) => ({
+  topics: many(topics),
+  scans: many(scans),
+}));
+
+export const topicsRelations = relations(topics, ({ one, many }) => ({
+  subject: one(subjects, {
+    fields: [topics.subjectId],
+    references: [subjects.id],
+  }),
+  scans: many(scans),
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -368,6 +582,22 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   sessions: many(sessions),
   scans: many(scans),
   dailyUsage: many(dailyUsage),
+  conversations: many(conversations),
+  bookmarks: many(bookmarks),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, {
+    fields: [accounts.userId],
+    references: [users.id],
+  }),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
 }));
 
 export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
@@ -399,14 +629,42 @@ export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
   }),
 }));
 
-export const scansRelations = relations(scans, ({ one }) => ({
+export const scansRelations = relations(scans, ({ one, many }) => ({
   user: one(users, {
     fields: [scans.userId],
     references: [users.id],
   }),
+  subject: one(subjects, {
+    fields: [scans.subjectId],
+    references: [subjects.id],
+  }),
+  topic: one(topics, {
+    fields: [scans.topicId],
+    references: [topics.id],
+  }),
   conversation: one(conversations, {
     fields: [scans.id],
     references: [conversations.scanId],
+  }),
+  bookmarks: many(bookmarks),
+  images: many(scanImages),
+}));
+
+export const bookmarksRelations = relations(bookmarks, ({ one }) => ({
+  user: one(users, {
+    fields: [bookmarks.userId],
+    references: [users.id],
+  }),
+  scan: one(scans, {
+    fields: [bookmarks.scanId],
+    references: [scans.id],
+  }),
+}));
+
+export const scanImagesRelations = relations(scanImages, ({ one }) => ({
+  scan: one(scans, {
+    fields: [scanImages.scanId],
+    references: [scans.id],
   }),
 }));
 
@@ -414,6 +672,10 @@ export const conversationsRelations = relations(conversations, ({ one }) => ({
   scan: one(scans, {
     fields: [conversations.scanId],
     references: [scans.id],
+  }),
+  user: one(users, {
+    fields: [conversations.userId],
+    references: [users.id],
   }),
 }));
 
@@ -428,6 +690,12 @@ export const dailyUsageRelations = relations(dailyUsage, ({ one }) => ({
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
 
 export type Language = typeof languages.$inferSelect;
 export type NewLanguage = typeof languages.$inferInsert;
@@ -452,3 +720,15 @@ export type NewScan = typeof scans.$inferInsert;
 
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
+
+export type Bookmark = typeof bookmarks.$inferSelect;
+export type NewBookmark = typeof bookmarks.$inferInsert;
+
+export type ScanImage = typeof scanImages.$inferSelect;
+export type NewScanImage = typeof scanImages.$inferInsert;
+
+export type Subject = typeof subjects.$inferSelect;
+export type NewSubject = typeof subjects.$inferInsert;
+
+export type Topic = typeof topics.$inferSelect;
+export type NewTopic = typeof topics.$inferInsert;
