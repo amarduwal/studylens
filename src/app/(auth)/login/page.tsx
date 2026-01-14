@@ -50,6 +50,12 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
+        // Check if unverified email
+        if (result.error.startsWith('UNVERIFIED_EMAIL:')) {
+          const userId = result.error.split(':')[1];
+          router.push(`/verify?userId=${userId}&email=${formData.email}`);
+          return;
+        }
         setError('Invalid email or password');
       } else {
         router.push(callbackUrl);

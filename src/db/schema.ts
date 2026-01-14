@@ -15,31 +15,48 @@ import {
   check,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
-import type { AdapterAccountType } from "next-auth/adapters";
 
 // ============ ENUMS ============
 
 export const subscriptionTierEnum = pgEnum("subscription_tier", [
-  "guest",
-  "free",
-  "premium",
+  'guest',
+  'free',
+  'premium',
+  'enterprise'
 ]);
 
 export const subscriptionStatusEnum = pgEnum("subscription_status", [
-  "active",
-  "canceled",
-  "expired",
-  "past_due",
+  'active',
+  'canceled',
+  'past_due',
+  'incomplete',
+  'trialing',
+  'paused'
 ]);
 
 export const contentTypeEnum = pgEnum("content_type", [
-  "math_problem",
-  "science_diagram",
-  "text_passage",
-  "handwritten_notes",
-  "graph_chart",
-  "code_snippet",
-  "other",
+  'math_problem',
+  'algebra',
+  'geometry',
+  'calculus',
+  'statistics',
+  'physics_problem',
+  'chemistry_problem',
+  'biology_diagram',
+  'science_diagram',
+  'text_passage',
+  'essay',
+  'handwritten_notes',
+  'printed_text',
+  'graph_chart',
+  'table_data',
+  'code_snippet',
+  'circuit_diagram',
+  'map',
+  'historical_document',
+  'language_text',
+  'music_sheet',
+  'other'
 ]);
 
 export const difficultyEnum = pgEnum("difficulty_level", [
@@ -164,6 +181,21 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+// ============ EMAIL VERIFICATION CODES ============
+
+export const emailVerificationCodes = pgTable("email_verification_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  code: varchar("code", { length: 6 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").default(0),
+  isUsed: boolean("is_used").default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const accounts = pgTable(
@@ -562,6 +594,7 @@ export const topicsRelations = relations(topics, ({ one, many }) => ({
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({
+  verificationCodes: many(emailVerificationCodes),
   preferredLanguage: one(languages, {
     fields: [users.preferredLanguageId],
     references: [languages.id],
@@ -584,6 +617,13 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   dailyUsage: many(dailyUsage),
   conversations: many(conversations),
   bookmarks: many(bookmarks),
+}));
+
+export const emailVerificationCodesRelations = relations(emailVerificationCodes, ({ one }) => ({
+  user: one(users, {
+    fields: [emailVerificationCodes.userId],
+    references: [users.id],
+  }),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -690,6 +730,9 @@ export const dailyUsageRelations = relations(dailyUsage, ({ one }) => ({
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+
+export type EmailVerificationCode = typeof emailVerificationCodes.$inferSelect;
+export type NewEmailVerificationCode = typeof emailVerificationCodes.$inferSelect;
 
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;

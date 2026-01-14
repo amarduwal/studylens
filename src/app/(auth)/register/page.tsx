@@ -52,23 +52,32 @@ export default function RegisterPage() {
       const data = await res.json();
 
       if (!res.ok) {
+        // Handle unverified existing user
+        if (data.code === 'UNVERIFIED_EMAIL') {
+          router.push(`/verify?userId=${data.userId}&email=${formData.email}`);
+          return;
+        }
         setError(data.error || 'Failed to create account');
         return;
       }
 
       setSuccess(true);
 
-      // Auto sign in after registration
-      const signInResult = await signIn('credentials', {
-        email: formData.email,
-        password: formData.password,
-        redirect: false,
-      });
+      // Redirect to verification page
+      router.push(`/verify?userId=${data.userId}&email=${formData.email}`);
 
-      if (signInResult?.ok) {
-        router.push('/');
-        router.refresh();
-      }
+      // Uncomment for Auto signin after registration
+      // Auto sign in after registration
+      // const signInResult = await signIn('credentials', {
+      //   email: formData.email,
+      //   password: formData.password,
+      //   redirect: false,
+      // });
+
+      // if (signInResult?.ok) {
+      //   router.push('/');
+      //   router.refresh();
+      // }
     } catch (err) {
       setError('Something went wrong. Please try again.');
     } finally {
@@ -157,7 +166,7 @@ export default function RegisterPage() {
             {/* Success Message */}
             {success && (
               <div className="rounded-lg bg-green-500/10 p-3 text-sm text-green-600 text-center">
-                Account created! Signing you in...
+                Account created! Verify your account...
               </div>
             )}
 

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/db";
-import { users, userPreferences, subscriptions, pricingPlans, studyStreaks } from "@/db/schema";
+import { users, userPreferences, subscriptions, pricingPlans, studyStreaks, emailVerificationCodes } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { generateVerificationCode, getCodeExpiryTime, sendVerificationEmail } from "@/lib/email";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -74,7 +75,29 @@ export async function POST(request: NextRequest) {
       }).onConflictDoNothing();
     }
 
+    // Generate and save verification code
+    const code = generateVerificationCode();
+    const expiresAt = getCodeExpiryTime(10); // 10 minutes
+
+    await db.insert(emailVerificationCodes).values({
+      userId: newUser.id,
+      email,
+      code,
+      expiresAt,
+    });
+
+    // Send verification email
+    const emailSent = await sendVerificationEmail(email, code, name);
+
+    if (!emailSent) {
+      return NextResponse.json(
+        { error: "Failed to send verification email. Please try again." },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
+      userId: newUser.id,
       success: true,
       message: "Account created successfully",
     });

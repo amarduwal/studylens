@@ -41,10 +41,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           throw new Error("Invalid email or password");
         }
 
+        // Check if email is verified
+        if (!user.emailVerified) {
+          throw new Error("UNVERIFIED_EMAIL:" + user.id);
+        }
+
         const isValid = await bcrypt.compare(password, user.passwordHash);
         if (!isValid) {
           throw new Error("Invalid email or password");
         }
+
+        // Update last login
+        await db
+          .update(users)
+          .set({ lastLoginAt: new Date() })
+          .where(eq(users.id, user.id));
 
         return {
           id: user.id,
