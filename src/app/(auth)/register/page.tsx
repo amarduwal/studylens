@@ -13,6 +13,7 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import { Loader2, Mail, Lock, Eye, EyeOff, User, Check } from 'lucide-react';
+import Image from 'next/image';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -104,9 +105,23 @@ export default function RegisterPage() {
       <div className="w-full max-w-md space-y-8">
         {/* Logo */}
         <div className="text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="text-4xl">📚</span>
-            <span className="text-2xl font-bold">StudyLens</span>
+          <Link
+            href="/"
+            className="flex items-center justify-center gap-2 mr-auto"
+          >
+            <div className="relative h-8 w-8 sm:h-10 sm:w-10">
+              <Image
+                src="/icon-192.png"
+                alt="StudyLens"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+
+            <span className="text-gradient text-2xl font-bold hidden sm:inline">
+              StudyLens
+            </span>
           </Link>
           <p className="mt-2 text-[hsl(var(--muted-foreground))]">
             Create an account to unlock more features
