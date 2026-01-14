@@ -3,9 +3,10 @@ import { handleFollowUp } from "@/lib/gemini";
 import { SupportedLanguage, FollowUpResponse, ConversationMessage } from "@/types";
 import { z } from "zod";
 import { v4 as uuidv4 } from 'uuid';
-import { conversations, dailyUsage, db, users } from "@/db";
+import { conversations, dailyUsage, db, messages, users } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { checkFollowupLimit } from "@/lib/usage";
 
 const followUpSchema = z.object({
   scanId: z.string().min(1),
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
   try {
     const body = await request.json();
     const session = await auth();
+    const trackingUserId = session?.user?.id || null;
 
     const validationResult = followUpSchema.safeParse(body);
     if (!validationResult.success) {
@@ -43,6 +45,31 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
     }
 
     const { scanId, question, originalContext, conversationHistory, language, sessionId } = validationResult.data;
+    const trackingSessionId = trackingUserId ? null : body.sessionId;
+
+    // Check follow-up limit
+    const limitCheck = await checkFollowupLimit(trackingUserId, sessionId);
+
+    if (!limitCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "LIMIT_EXCEEDED",
+            message: `Daily message limit reached (${limitCheck.limit} messages). ${!session?.user?.id
+              ? "Sign in for more messages."
+              : session?.user?.id && limitCheck.limit <= 3
+                ? "Upgrade to Premium for unlimited messages."
+                : "Try again tomorrow."
+              }`,
+            remaining: 0,
+            limit: limitCheck.limit,
+          },
+        },
+        { status: 429 }
+      );
+    }
+
 
     // Convert to proper ConversationMessage format
     const history: ConversationMessage[] = conversationHistory.map((msg) => ({
@@ -59,6 +86,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
     );
 
     // Update conversation and usage stats
+    let conversationId: string;
     const [conversation] = await db
       .select()
       .from(conversations)
@@ -66,24 +94,43 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
       .limit(1);
 
     if (conversation) {
+      conversationId = conversation.id;
       await db
         .update(conversations)
         .set({
-          messageCount: sql`${conversations.messageCount} + 1`,
+          messageCount: sql`${conversations.messageCount} + 1`, // Increment of User + Assistant
           lastMessageAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(conversations.id, conversation.id));
     } else {
       // Create conversation if it doesn't exist
-      await db.insert(conversations).values({
+      const [newConv] = await db.insert(conversations).values({
         scanId,
-        userId: session?.user?.id || null,
+        userId: trackingUserId,
         sessionId: sessionId || "",
         messageCount: 1,
         lastMessageAt: new Date(),
-      });
+      }).returning();
+      conversationId = newConv.id;
     }
+
+    // Store user message
+    await db.insert(messages).values({
+      conversationId,
+      role: "user",
+      content: question,
+      status: "sent",
+    });
+
+    // Store assistant message
+    await db.insert(messages).values({
+      conversationId,
+      role: "assistant",
+      content: answer,
+      modelUsed: process.env.GOOGLE_AI_MODEL,
+      status: "sent",
+    });
 
     // Update user message count
     if (session?.user?.id) {
@@ -112,8 +159,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
         .where(eq(dailyUsage.id, existingUsage.id));
     } else {
       await db.insert(dailyUsage).values({
-        userId: session?.user?.id || null,
-        sessionId: sessionId || null,
+        userId: trackingUserId,
+        sessionId: trackingSessionId,
         messageCount: 1,
       });
     }
@@ -123,6 +170,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
       data: {
         answer,
         messageId: uuidv4(),
+        usage: {
+          remaining: limitCheck.remaining - 1, // Subtract the one we just used
+          limit: limitCheck.limit,
+        },
       },
     });
   } catch (error) {

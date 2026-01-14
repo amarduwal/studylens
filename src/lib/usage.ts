@@ -42,10 +42,10 @@ export async function getPlanLimits(
   });
 
   const defaultLimits: UsageLimits = {
-    dailyScanLimit: guestPlan?.dailyScanLimit ?? 3,
+    dailyScanLimit: guestPlan?.dailyScanLimit ?? 1,
     monthlyScanLimit: guestPlan?.monthlyScanLimit ?? null,
     maxImageSizeMb: 5,
-    maxFollowupQuestions: 2,
+    maxFollowupQuestions: 1,
     maxPracticeProblems: 1,
     maxBookmarks: guestPlan?.maxBookmarks ?? 5,
     maxHistoryDays: guestPlan?.maxHistoryDays ?? 0,
@@ -89,9 +89,9 @@ export async function getPlanLimits(
   return {
     dailyScanLimit: userSub.plan.dailyScanLimit ?? -1,  // NULL = unlimited
     monthlyScanLimit: userSub.plan.monthlyScanLimit,
-    maxImageSizeMb: 5,
+    maxImageSizeMb: 10,
     maxFollowupQuestions: 2,
-    maxPracticeProblems: 1,
+    maxPracticeProblems: -1,
     maxBookmarks: userSub.plan.maxBookmarks,
     maxHistoryDays: userSub.plan.maxHistoryDays,
     features: (userSub.plan.features as string[]) ?? [],
@@ -180,7 +180,7 @@ export async function checkFollowupLimit(
   }
 
   // Free/guest users get limited followups (e.g., 10 per day)
-  const followupLimit = 10;
+  const followupLimit = isUnlimited ? 50 : 3;
   const remaining = followupLimit - usage.messageCount;
   const allowed = remaining > 0;
 
@@ -272,7 +272,7 @@ export async function getUsageStatus(
     followups: {
       used: usage.messageCount,
       // Followups not limited per plan anymore, use reasonable default
-      limit: isUnlimited ? -1 : 10,
+      limit: isUnlimited ? -1 : 5,
       remaining: isUnlimited ? -1 : Math.max(0, 10 - usage.messageCount),
       unlimited: isUnlimited,
     },

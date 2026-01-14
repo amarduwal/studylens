@@ -54,6 +54,36 @@ export default function ResultsPage() {
     loadScan();
   }, [scanId, currentResult, scanHistory, getScanById, sessionId]);
 
+  useEffect(() => {
+    async function loadConversation() {
+      // Get conversation for this scan
+      const convRes = await fetch(`/api/conversations?scanId=${scanId}`);
+      const convData = await convRes.json();
+
+      if (convData.success && convData.data) {
+        const conversationId = convData.data.id;
+
+        // Load messages
+        const msgRes = await fetch(
+          `/api/conversations/${conversationId}/messages`
+        );
+        const msgData = await msgRes.json();
+
+        if (msgData.success && msgData.data) {
+          // Populate store with existing messages
+          msgData.data.forEach((msg: any) => {
+            useScanStore.getState().addMessage({
+              role: msg.role,
+              content: msg.content,
+            });
+          });
+        }
+      }
+    }
+
+    loadConversation();
+  }, [scanId]);
+
   const bookmarked = result ? isBookmarked(result.id) : false;
 
   const handleBookmark = async () => {

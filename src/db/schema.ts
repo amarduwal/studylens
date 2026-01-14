@@ -91,6 +91,12 @@ export const difficultyLevelEnum = pgEnum("difficulty_level", [
   'expert'
 ]);
 
+export const messageRoleEnum = pgEnum("message_role", [
+  "user",
+  "assistant",
+  "system",
+]);
+
 
 // ============ LANGUAGES ============
 
@@ -546,6 +552,41 @@ export const conversations = pgTable("conversations", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ============ MESSAGES ============
+
+export const messages = pgTable("messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+
+  // Message Content
+  role: messageRoleEnum("role").notNull(),
+  content: text("content").notNull(),
+
+  // Rich Content
+  contentHtml: text("content_html"),
+  attachments: jsonb("attachments"),
+
+  // Metadata
+  tokenCount: integer("token_count"),
+  processingTimeMs: integer("processing_time_ms"),
+
+  // AI Model Info
+  modelUsed: varchar("model_used", { length: 50 }),
+
+  // Feedback
+  wasHelpful: boolean("was_helpful"),
+  feedbackType: varchar("feedback_type", { length: 20 }),
+
+  // Status
+  status: varchar("status", { length: 20 }).default("sent"),
+
+  // Timestamps
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ============ STUDY STREAKS ============
 
 export const studyStreaks = pgTable("study_streaks", {
@@ -708,7 +749,7 @@ export const scanImagesRelations = relations(scanImages, ({ one }) => ({
   }),
 }));
 
-export const conversationsRelations = relations(conversations, ({ one }) => ({
+export const conversationsRelations = relations(conversations, ({ one, many }) => ({
   scan: one(scans, {
     fields: [conversations.scanId],
     references: [scans.id],
@@ -716,6 +757,14 @@ export const conversationsRelations = relations(conversations, ({ one }) => ({
   user: one(users, {
     fields: [conversations.userId],
     references: [users.id],
+  }),
+  messages: many(messages),
+}));
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [messages.conversationId],
+    references: [conversations.id],
   }),
 }));
 
@@ -763,6 +812,9 @@ export type NewScan = typeof scans.$inferInsert;
 
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
+
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert;
 
 export type Bookmark = typeof bookmarks.$inferSelect;
 export type NewBookmark = typeof bookmarks.$inferInsert;

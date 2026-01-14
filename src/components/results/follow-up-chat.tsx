@@ -20,6 +20,10 @@ export function FollowUpChat({
 }: FollowUpChatProps) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [usage, setUsage] = useState<{
+    remaining: number;
+    limit: number;
+  } | null>(null);
 
   const {
     messages,
@@ -66,11 +70,21 @@ export function FollowUpChat({
 
       if (data.success) {
         addMessage({ role: 'assistant', content: data.data.answer });
+        setUsage(data.data.usage);
       } else {
-        addMessage({
-          role: 'assistant',
-          content: "Sorry, I couldn't process your question. Please try again.",
-        });
+        // Handle limit exceeded
+        if (data.error?.code === 'LIMIT_EXCEEDED') {
+          addMessage({
+            role: 'assistant',
+            content: data.error.message,
+          });
+        } else {
+          addMessage({
+            role: 'assistant',
+            content:
+              "Sorry, I couldn't process your question. Please try again.",
+          });
+        }
       }
     } catch (error) {
       console.error('Follow-up error:', error);
@@ -98,8 +112,15 @@ export function FollowUpChat({
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-xl">💬</span>
-          Ask Follow-up Questions
+          <span className="flex items-center gap-2">
+            <span className="text-xl">💬</span>
+            Ask Follow-up Questions
+          </span>
+          {usage && (
+            <span className="text-xs text-[hsl(var(--muted-foreground))]">
+              {usage.remaining}/{usage.limit} remaining
+            </span>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">

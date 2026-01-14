@@ -87,10 +87,16 @@ export interface FollowUpResponse {
   data?: {
     answer: string;
     messageId: string;
+    usage?: {
+      remaining: number;
+      limit: number;
+    };
   };
   error?: {
     code: string;
     message: string;
+    remaining?: number;
+    limit?: number;
   };
 }
 

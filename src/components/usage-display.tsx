@@ -14,6 +14,24 @@ interface UsageData {
     remaining: number;
     unlimited: boolean;
   };
+  practice: {
+    used: number;
+    limit: number;
+    remaining: number;
+    unlimited: boolean;
+  };
+  limits: {
+    dailyScanLimit: number;
+    monthlyScanLimit: number | null;
+    maxImageSizeMb: number | null;
+    maxFollowupQuestions: number | null;
+    maxPracticeProblems: number | null;
+    maxBookmarks: number | null;
+    maxHistoryDays: number | null;
+    features: string[];
+    canAccessPremiumSubjects: boolean;
+    canExportPdf: boolean;
+  };
 }
 
 export function UsageDisplay() {
@@ -82,7 +100,7 @@ export function UsageDisplay() {
           >
             Sign up
           </Link>{' '}
-          for 10 free scans daily
+          for 5 free scans daily
         </p>
       )}
 
