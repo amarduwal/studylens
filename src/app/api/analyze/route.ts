@@ -17,12 +17,15 @@ const analyzeSchema = z.object({
   language: z.enum(["en", "hi", "ne", "es", "fr", "ar", "zh", "bn", "pt", "id"]).default("en"),
   educationLevel: z.string().optional(),
   sessionId: z.string().optional(),
+  filename: z.string().optional(),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeResponse>> {
   try {
     const session = await auth();
     const body = await request.json();
+
+    const trackingUserId = session?.user?.id || null;
 
     // Validate request
     const validationResult = analyzeSchema.safeParse(body);
@@ -39,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       );
     }
 
-    const { image, mimeType, language, educationLevel, sessionId } = validationResult.data;
+    const { image, mimeType, language, educationLevel, sessionId, filename } = validationResult.data;
 
     // Check if image is too large (base64 encoded)
     const imageSizeBytes = (image.length * 3) / 4;
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       .insert(scans)
       .values({
         id: scanId,
-        userId: session?.user?.id || null,
+        userId: trackingUserId,
         sessionId: sessionId || uuidv4(),
         subjectId,
         topicId,
@@ -104,18 +107,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
 
     // Store image
     // Generate file hash for duplicate detection
-    const imageId = uuidv4();
+    // const imageId = uuidv4();
     const imageBuffer = Buffer.from(image, 'base64');
     const fileHash = crypto.createHash('sha256').update(imageBuffer).digest('hex');
 
     // For now, store as base64 in storage_key (you can later upload to R2/S3)
-    const storageKey = `scans/${scanId}/${imageId}.${mimeType.split('/')[1]}`;
+    // const storageKey = `scans/${scanId}/${imageId}.${mimeType.split('/')[1]}`;
 
     await db.insert(scanImages).values({
       scanId: scanId,
       storageProvider: "local", // Change to "r2" or "s3" when you implement cloud storage
       storageKey: '/Screenshot-1.png', // Store path/key instead of base64, replace with cloud URL later
-      originalFilename: __filename || `scan-${Date.now()}.${mimeType.split('/')[1]}`,
+      originalFilename: filename || `scan-${Date.now()}.${mimeType.split('/')[1]}`,
       mimeType: mimeType,
       fileSize: imageSizeBytes,
       fileHash: fileHash,
@@ -137,6 +140,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
 
     // Update daily usage
     const today = new Date().toISOString().split('T')[0];
+    const trackingSessionId = trackingUserId ? null : (sessionId || body.sessionId);
     const [existingUsage] = await db
       .select()
       .from(dailyUsage)
@@ -147,7 +151,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
             sql`DATE(${dailyUsage.usageDate}) = ${today}`
           )
           : and(
-            eq(dailyUsage.sessionId, sessionId || ""),
+            eq(dailyUsage.sessionId, trackingSessionId || ""),
             sql`DATE(${dailyUsage.usageDate}) = ${today}`
           )
       )
@@ -163,8 +167,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
         .where(eq(dailyUsage.id, existingUsage.id));
     } else {
       await db.insert(dailyUsage).values({
-        userId: session?.user?.id || null,
-        sessionId: sessionId || null,
+        userId: trackingUserId,
+        sessionId: trackingSessionId,
         scanCount: 1,
         messageCount: 0,
         practiceCount: 0,

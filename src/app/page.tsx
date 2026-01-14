@@ -45,7 +45,6 @@ export default function HomePage() {
 
     try {
       const base64 = await fileToBase64(currentImageFile);
-
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -53,11 +52,11 @@ export default function HomePage() {
           image: base64,
           mimeType: currentImageFile.type,
           language: selectedLanguage,
+          sessionId: useScanStore.getState().sessionId,
+          filename: currentImageFile.name,
         }),
       });
-
       const data = await response.json();
-
       if (data.success) {
         // Store the image URL in the result
         const resultWithImage = {
