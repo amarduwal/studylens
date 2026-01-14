@@ -18,7 +18,7 @@ export const SYSTEM_PROMPT = `You are StudyLens, an expert educational AI tutor.
 
 export function getAnalysisPrompt(language: SupportedLanguage): string {
   const languageInstruction = language !== "en"
-    ? `IMPORTANT: Provide ALL your response in ${getLanguageName(language)} language. The entire response including the JSON structure values must be in ${getLanguageName(language)}.`
+    ? `IMPORTANT: Provide ALL your response in ${getLanguageName(language)} language. The entire response including the JSON structure values must be in ${getLanguageName(language)}. However, the following fields MUST remain in English: "contentType", "difficulty", "subject" field values.`
     : "";
 
   return `${SYSTEM_PROMPT}
