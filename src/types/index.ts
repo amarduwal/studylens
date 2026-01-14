@@ -46,9 +46,12 @@ export interface ScanResult {
   topic: string;
   difficulty: Difficulty;
   extractedText: string;
+  extractedLatex?: string;
+  detectedLanguage?: string;
   explanation: Explanation;
   language: SupportedLanguage;
   createdAt: Date;
+  isBookmarked?: boolean;
 }
 
 export interface ConversationMessage {

@@ -7,7 +7,7 @@ import {
   ConversationMessage,
 } from "@/types";
 import { getAnalysisPrompt, getFollowUpPrompt, getSimplifyPrompt } from "./prompts";
-import { nanoid } from "nanoid";
+import { v4 as uuidv4 } from 'uuid';
 
 // Initialize the Gemini client
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! });
@@ -50,6 +50,8 @@ export async function analyzeImage(
       },
     });
 
+    console.log(response);
+
     const text = response.text || "";
 
     // Parse the JSON response
@@ -63,13 +65,15 @@ export async function analyzeImage(
 
     // Construct the ScanResult
     const scanResult: ScanResult = {
-      id: nanoid(),
+      id: uuidv4(),
       imageUrl: "", // Will be set after storage
       contentType: parsed.contentType as ContentType,
       subject: parsed.subject || "General",
       topic: parsed.topic || "Unknown",
       difficulty: (parsed.difficulty as Difficulty) || "medium",
       extractedText: parsed.extractedText || "",
+      extractedLatex: parsed.extractedLatex || null,
+      detectedLanguage: parsed.detectedLanguage || language,
       explanation: {
         simpleAnswer: parsed.explanation?.simpleAnswer || "Unable to determine answer",
         stepByStep: parsed.explanation?.stepByStep || [],

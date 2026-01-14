@@ -7,10 +7,34 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Clock, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
+import { ScanResult } from '@/types';
+import { useToast } from '@/components/ui/toast';
 
 export default function SavedPage() {
-  const { getBookmarkedScans, toggleBookmark } = useScanStore();
-  const bookmarkedScans = getBookmarkedScans();
+  const { fetchBookmarksFromDB, toggleBookmarkDB, sessionId } = useScanStore();
+  const [bookmarkedScans, setBookmarkedScans] = useState<ScanResult[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { showToast, ToastComponent } = useToast();
+
+  useEffect(() => {
+    async function loadBookmarks() {
+      setIsLoading(true);
+      const scans = await fetchBookmarksFromDB(sessionId);
+      setBookmarkedScans(scans);
+      setIsLoading(false);
+    }
+    loadBookmarks();
+  }, [sessionId, fetchBookmarksFromDB]);
+
+  const handleToggleBookmark = async (scanId: string) => {
+    setBookmarkedScans((prev) => prev.filter((s) => s.id !== scanId));
+    const result = await toggleBookmarkDB(scanId, sessionId);
+    showToast(
+      result ? 'Removed from bookmarks' : 'Added to bookmarks',
+      'success'
+    );
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
@@ -24,6 +48,15 @@ export default function SavedPage() {
                 Quick access to your saved explanations
               </p>
             </div>
+
+            {isLoading && (
+              <div className="text-center py-12">
+                <div className="animate-spin h-8 w-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-[hsl(var(--muted-foreground))]">
+                  Loading bookmarks...
+                </p>
+              </div>
+            )}
 
             {/* Bookmarked List */}
             {bookmarkedScans.length === 0 ? (
@@ -52,12 +85,13 @@ export default function SavedPage() {
                             href={`/results/${scan.id}`}
                             className="shrink-0"
                           >
-                            <div className="w-24 h-24 rounded-lg overflow-hidden bg-[hsl(var(--muted))]">
+                            <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-[hsl(var(--muted))] shrink-0">
                               <Image
                                 src={scan.imageUrl}
-                                alt="Scan"
+                                alt="Scan thumbnail"
                                 fill
-                                className="w-full h-full object-cover"
+                                className="object-cover"
+                                unoptimized
                               />
                             </div>
                           </Link>
@@ -101,7 +135,7 @@ export default function SavedPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => toggleBookmark(scan.id)}
+                              onClick={() => handleToggleBookmark(scan.id)}
                               className="text-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))]/10"
                             >
                               <X className="h-4 w-4 mr-1" />
@@ -118,6 +152,8 @@ export default function SavedPage() {
           </div>
         </div>
       </main>
+
+      {ToastComponent}
     </div>
   );
 }

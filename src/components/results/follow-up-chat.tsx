@@ -10,9 +10,14 @@ import { cn } from '@/lib/utils';
 interface FollowUpChatProps {
   scanId: string;
   originalContext: string;
+  practiceQuestions?: string[];
 }
 
-export function FollowUpChat({ scanId, originalContext }: FollowUpChatProps) {
+export function FollowUpChat({
+  scanId,
+  originalContext,
+  practiceQuestions,
+}: FollowUpChatProps) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -53,6 +58,7 @@ export function FollowUpChat({ scanId, originalContext }: FollowUpChatProps) {
           originalContext,
           conversationHistory: messages,
           language: selectedLanguage,
+          sessionId: useScanStore.getState().sessionId,
         }),
       });
 
@@ -81,7 +87,7 @@ export function FollowUpChat({ scanId, originalContext }: FollowUpChatProps) {
     setInput(question);
   };
 
-  const suggestedQuestions = [
+  const suggestedQuestions = practiceQuestions?.slice(0, 4) || [
     'Can you explain this differently?',
     'Why does this work?',
     'Give me another example',

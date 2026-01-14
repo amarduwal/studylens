@@ -19,7 +19,7 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
         <span className="rounded-full bg-[hsl(var(--primary))]/10 px-3 py-1 text-sm font-medium text-[hsl(var(--primary))]">
           {subject}
         </span>
-        <span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1 text-sm">
+        <span className="rounded-full bg-[hsl(var(--secondary))]/10 px-3 py-1 text-sm text-[hsl(var(--secondary))]">
           {topic}
         </span>
         <span
@@ -33,7 +33,9 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
               'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
           )}
         >
-          {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+          {difficulty
+            ? difficulty.charAt(0).toUpperCase() + difficulty.slice(1)
+            : 'Unknown'}
         </span>
       </div>
 
