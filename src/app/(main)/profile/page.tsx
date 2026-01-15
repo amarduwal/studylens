@@ -2,20 +2,29 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { User, Languages, Settings, LogIn } from 'lucide-react';
+import { User, LogIn, Loader2 } from 'lucide-react';
 import { useSession, signIn } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
+import { formatHour, StatItem } from '@/components/common/helper';
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
   const [stats, setStats] = useState<{
     totalScans: number;
+    totalMessages: number;
     totalBookmarks: number;
+    totalPracticeAttempts: number;
+    correctAnswers: number;
+    accuracyPercentage: number | null;
     currentStreak: number;
     longestStreak: number;
+    favoriteSubject: string | null;
+    mostActiveHour: number | null;
   } | null>(null);
+
+  const [memberSince, setMemberSince] = useState<string | null>(null);
+
   const [userInfo, setUserInfo] = useState<{
     name?: string;
     email?: string;
@@ -36,6 +45,7 @@ export default function ProfilePage() {
         if (data.success && data.data) {
           setStats(data.data.stats);
           setUserInfo(data.data.user);
+          setMemberSince(data.data.user.memberSince);
         }
       } catch (error) {
         console.error('Failed to load stats:', error);
@@ -48,6 +58,21 @@ export default function ProfilePage() {
   }, [session]);
 
   const isGuest = status === 'unauthenticated';
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
+        <main className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-[hsl(var(--primary))]" />
+            <p className="text-[hsl(var(--muted-foreground))]">
+              Loading Stats...
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
@@ -104,56 +129,35 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {/* Stats */}
-            {!isGuest && (
-              <div className="grid grid-cols-2 gap-4">
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-3xl font-bold text-[hsl(var(--primary))]">
-                      {isLoading ? '...' : stats?.totalScans || 0}
-                    </div>
-                    <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-                      Total Scans
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-3xl font-bold text-[hsl(var(--primary))]">
-                      {isLoading ? '...' : stats?.totalBookmarks || 0}
-                    </div>
-                    <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-                      Bookmarked
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {/* Streak Card */}
             {!isGuest && stats && (
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    🔥 Study Streak
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex justify-around text-center">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                      <span className="text-xl">🔥</span>
+                    </div>
                     <div>
-                      <div className="text-2xl font-bold">
+                      <h3 className="font-semibold">Study Streak</h3>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Keep learning daily!
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-3 rounded-xl bg-[hsl(var(--muted))]/50">
+                      <div className="text-2xl font-bold text-orange-500">
                         {stats.currentStreak}
                       </div>
                       <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                        Current
+                        Current Streak
                       </p>
                     </div>
-                    <div>
-                      <div className="text-2xl font-bold">
+                    <div className="text-center p-3 rounded-xl bg-[hsl(var(--muted))]/50">
+                      <div className="text-2xl font-bold text-amber-500">
                         {stats.longestStreak}
                       </div>
                       <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                        Longest
+                        Longest Streak
                       </p>
                     </div>
                   </div>
@@ -161,28 +165,121 @@ export default function ProfilePage() {
               </Card>
             )}
 
-            {/* Settings */}
-            {!isGuest && (
+            {/* Activity Stats */}
+            {!isGuest && stats && (
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Settings className="h-5 w-5" />
-                    Settings
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <span>📊</span> Activity
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <Link
-                    href="/settings"
-                    className="flex items-center justify-between hover:bg-[hsl(var(--muted))]/50 p-2 rounded-lg transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Languages className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-                      <span className="text-sm">Language & Preferences</span>
-                    </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <StatItem
+                      icon="📷"
+                      label="Total Scans"
+                      value={stats.totalScans}
+                      color="text-blue-500"
+                    />
+                    <StatItem
+                      icon="💬"
+                      label="Messages"
+                      value={stats.totalMessages}
+                      color="text-green-500"
+                    />
+                    <StatItem
+                      icon="🔖"
+                      label="Bookmarks"
+                      value={stats.totalBookmarks}
+                      color="text-purple-500"
+                    />
+                    <StatItem
+                      icon="✏️"
+                      label="Practice Problems"
+                      value={stats.totalPracticeAttempts}
+                      color="text-pink-500"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Practice Performance */}
+            {stats && stats.totalPracticeAttempts > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <span>🎯</span> Practice Performance
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-[hsl(var(--muted-foreground))]">
-                      →
+                      Accuracy
                     </span>
-                  </Link>
+                    <span className="font-bold text-lg">
+                      {stats.accuracyPercentage?.toFixed(1) || 0}%
+                    </span>
+                  </div>
+                  <div className="h-3 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all"
+                      style={{ width: `${stats.accuracyPercentage || 0}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+                    <span>{stats.correctAnswers} correct</span>
+                    <span>{stats.totalPracticeAttempts} attempted</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Insights */}
+            {!isGuest && stats && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <span>💡</span> Insights
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {stats.favoriteSubject && (
+                    <div className="flex items-center justify-between py-2 border-b border-[hsl(var(--border))]">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">📚</span>
+                        <span className="text-sm">Favorite Subject</span>
+                      </div>
+                      <span className="font-medium text-[hsl(var(--primary))]">
+                        {stats.favoriteSubject}
+                      </span>
+                    </div>
+                  )}
+                  {stats.mostActiveHour !== null && (
+                    <div className="flex items-center justify-between py-2 border-b border-[hsl(var(--border))]">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">⏰</span>
+                        <span className="text-sm">Most Active Time</span>
+                      </div>
+                      <span className="font-medium">
+                        {formatHour(stats.mostActiveHour)}
+                      </span>
+                    </div>
+                  )}
+                  {memberSince && (
+                    <div className="flex items-center justify-between py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">📅</span>
+                        <span className="text-sm">Member Since</span>
+                      </div>
+                      <span className="font-medium">
+                        {new Date(memberSince).toLocaleDateString('en-US', {
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
