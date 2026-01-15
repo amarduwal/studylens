@@ -36,6 +36,17 @@ export default function SavedPage() {
     );
   };
 
+  if (isLoading) {
+    return (
+      <div className="text-center py-12">
+        <div className="animate-spin h-8 w-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full mx-auto mb-4" />
+        <p className="text-[hsl(var(--muted-foreground))]">
+          Loading bookmarks...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
       <main className="flex-1 overflow-y-auto pb-20 md:pb-24">
@@ -48,15 +59,6 @@ export default function SavedPage() {
                 Quick access to your saved explanations
               </p>
             </div>
-
-            {isLoading && (
-              <div className="text-center py-12">
-                <div className="animate-spin h-8 w-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full mx-auto mb-4" />
-                <p className="text-[hsl(var(--muted-foreground))]">
-                  Loading bookmarks...
-                </p>
-              </div>
-            )}
 
             {/* Bookmarked List */}
             {bookmarkedScans.length === 0 ? (

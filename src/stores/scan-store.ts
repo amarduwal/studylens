@@ -181,13 +181,14 @@ export const useScanStore = create<ScanState>()(
               sessionId: sessionId || get().sessionId
             }),
           });
+          const data = await res.json();
 
           if (res.ok) {
             // Refresh scans to update bookmark status
             await get().fetchScansFromDB(get().sessionId);
-            return true;
+            // return true;
           }
-          return false;
+          return !data.data.isBookmarked;
         } catch (error) {
           console.error("Failed to toggle bookmark:", error);
           return false;

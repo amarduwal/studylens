@@ -1,76 +1,90 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { bookmarks, scanImages, scans, subjects, topics } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 // GET bookmarks
 export async function GET(request: NextRequest) {
   try {
-    console.log("Called");
     const session = await auth();
     const searchParams = request.nextUrl.searchParams;
     const sessionId = searchParams.get("sessionId");
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = parseInt(searchParams.get("offset") || "0");
 
-    let whereClause;
+    const userId = session?.user?.id;
 
-    if (session?.user?.id) {
-      whereClause = eq(bookmarks.userId, session.user.id);
-    } else if (sessionId) {
-      // For guests, we need to join with scans to check sessionId
-      const results = await db
-        .select({
-          bookmark: bookmarks,
-          scan: scans,
-          scanImage: scanImages,
-          subject: subjects,
-          topic: topics,
-        })
-        .from(bookmarks)
-        .innerJoin(scans, eq(bookmarks.scanId, scans.id))
-        .leftJoin(scanImages, eq(scans.id, scanImages.scanId))
-        .leftJoin(subjects, eq(scans.subjectId, subjects.id))
-        .leftJoin(topics, eq(scans.topicId, topics.id))
-        .where(eq(scans.sessionId, sessionId))
-        .limit(limit)
-        .offset(offset);
-
-      return NextResponse.json({
-        success: true,
-        data: results.map(r => ({
-          ...r.scan,
-          imageUrl: r.scanImage?.storageKey || null,
-          isBookmarked: true,
-          subject: r.subject?.name || null,
-          topic: r.topic?.name || null,
-        })),
-      });
-    } else {
+    if (!userId && !sessionId) {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    // For authenticated users
-    const results = await db
-      .select({
-        scan: scans,
-        bookmark: bookmarks,
-        scanImage: scanImages,
-      })
-      .from(bookmarks)
-      .innerJoin(scans, eq(bookmarks.scanId, scans.id))
-      .leftJoin(scanImages, eq(scans.id, scanImages.scanId))
-      .where(whereClause)
-      .limit(limit)
-      .offset(offset);
+    // Use the view for authenticated users
+    if (userId) {
+      const result = await db.execute(sql`
+        SELECT * FROM v_user_bookmarks
+        WHERE user_id = ${userId}
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+
+      return NextResponse.json({
+        success: true,
+        data: result.rows.map((r) => ({
+          id: r.scan_id,
+          bookmarkId: r.bookmark_id,
+          contentType: r.content_type,
+          detectedLanguage: r.detected_language,
+          extractedText: r.excerpt,
+          imageUrl: r.original_filename,
+          subject: r.subject_name,
+          subjectIcon: r.subject_icon,
+          subjectColor: r.subject_color,
+          topic: r.topic_name,
+          notes: r.notes,
+          isBookmarked: true,
+          createdAt: r.scan_date,
+          bookmarkedAt: r.bookmarked_at,
+        })),
+      }, {
+        headers: { "Cache-Control": "private, max-age=10" },
+      });
+    }
+
+    // Guest users - query by sessionId
+    const result = await db.execute(sql`
+      SELECT
+        b.id AS bookmark_id,
+        s.id AS scan_id,
+        s.content_type,
+        s.detected_language,
+        LEFT(s.extracted_text, 200) AS excerpt,
+        si.original_filename,
+        sub.name AS subject_name,
+        t.name AS topic_name,
+        s.created_at AS scan_date,
+        b.created_at AS bookmarked_at
+      FROM bookmarks b
+      JOIN scans s ON b.scan_id = s.id
+      LEFT JOIN scan_images si ON s.id = si.scan_id
+      LEFT JOIN subjects sub ON s.subject_id = sub.id
+      LEFT JOIN topics t ON s.topic_id = t.id
+      WHERE s.session_id = ${sessionId}
+      ORDER BY b.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
 
     return NextResponse.json({
       success: true,
-      data: results.map(r => ({
-        ...r.scan,
-        imageUrl: r.scanImage?.storageKey || null, // Map storage key to imageUrl
+      data: result.rows.map((r) => ({
+        id: r.scan_id,
+        bookmarkId: r.bookmark_id,
+        contentType: r.content_type,
+        extractedText: r.excerpt,
+        imageUrl: r.original_filename,
+        subject: r.subject_name,
+        topic: r.topic_name,
         isBookmarked: true,
+        createdAt: r.scan_date,
+        bookmarkedAt: r.bookmarked_at,
       })),
     });
   } catch (error) {
@@ -86,76 +100,28 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
-    const { scanId, sessionId } = await request.json();
+    const { scanId } = await request.json();
 
-    // Verify scan exists and get userId
-    const [scan] = await db
-      .select()
-      .from(scans)
-      .where(eq(scans.id, scanId))
-      .limit(1);
+    const userId = session?.user?.id;
 
-    if (!scan) {
+    if (!userId) {
       return NextResponse.json(
-        { success: false, error: "Scan not found" },
-        { status: 404 }
-      );
-    }
-
-    // Determine userId (authenticated or from scan)
-    const userId = session?.user?.id || scan.userId;
-
-    if (!userId && !sessionId) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
+        { success: false, error: "Login required to bookmark" },
         { status: 401 }
       );
     }
 
-    // Check if bookmark exists
-    const [existingBookmark] = await db
-      .select()
-      .from(bookmarks)
-      .where(
-        and(
-          userId ? eq(bookmarks.userId, userId) : undefined,
-          eq(bookmarks.scanId, scanId)
-        )
-      )
-      .limit(1);
+    // Use the function for toggle
+    const result = await db.execute(sql`
+      SELECT fn_toggle_bookmark(${userId}::uuid, ${scanId}::uuid) AS is_bookmarked
+    `);
 
-    if (existingBookmark) {
-      // Remove bookmark
-      await db
-        .delete(bookmarks)
-        .where(eq(bookmarks.id, existingBookmark.id));
+    const isBookmarked = (result.rows[0])?.is_bookmarked;
 
-      return NextResponse.json({
-        success: true,
-        data: { isBookmarked: false },
-      });
-    } else {
-      // Add bookmark
-      if (!userId) {
-        return NextResponse.json(
-          { success: false, error: "User ID required for bookmarking" },
-          { status: 400 }
-        );
-      }
-
-      const [newBookmark] = await db
-        .insert(bookmarks)
-        .values({
-          userId,
-          scanId,
-        })
-        .returning();
-
-      return NextResponse.json({
-        success: true,
-        data: { isBookmarked: true, bookmark: newBookmark },
-      });
-    }
+    return NextResponse.json({
+      success: true,
+      data: { isBookmarked },
+    });
   } catch (error) {
     console.error("Bookmark toggle error:", error);
     return NextResponse.json(
