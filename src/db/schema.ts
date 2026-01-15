@@ -97,6 +97,15 @@ export const messageRoleEnum = pgEnum("message_role", [
   "system",
 ]);
 
+export const paymentStatusEnum = pgEnum("payment_status", [
+  "pending",
+  "processing",
+  "succeeded",
+  "failed",
+  "canceled",
+  "refunded",
+]);
+
 
 // ============ LANGUAGES ============
 
@@ -411,6 +420,49 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ============ PAYMENTS ============
+
+export const payments = pgTable("payments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  subscriptionId: uuid("subscription_id").references(() => subscriptions.id, { onDelete: "set null" }),
+
+  // Payment Details
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("USD"),
+  status: paymentStatusEnum("status").default("pending"),
+
+  // Stripe Info
+  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 100 }).unique(),
+  stripeInvoiceId: varchar("stripe_invoice_id", { length: 100 }),
+  stripeChargeId: varchar("stripe_charge_id", { length: 100 }),
+
+  // Payment Method
+  paymentMethod: varchar("payment_method", { length: 50 }),
+  cardLastFour: varchar("card_last_four", { length: 4 }),
+  cardBrand: varchar("card_brand", { length: 20 }),
+
+  // Details
+  description: text("description"),
+  metadata: jsonb("metadata"),
+
+  // Refund Info
+  refundedAmount: decimal("refunded_amount", { precision: 10, scale: 2 }).default("0"),
+  refundReason: text("refund_reason"),
+  refundedAt: timestamp("refunded_at", { withTimezone: true }),
+
+  // Failure Info
+  failureCode: varchar("failure_code", { length: 50 }),
+  failureMessage: text("failure_message"),
+
+  // Timestamps
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ============ SCANS ============
 
 export const scans = pgTable("scans", {
@@ -658,6 +710,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   dailyUsage: many(dailyUsage),
   conversations: many(conversations),
   bookmarks: many(bookmarks),
+  payments: many(payments),
 }));
 
 export const emailVerificationCodesRelations = relations(emailVerificationCodes, ({ one }) => ({
@@ -699,7 +752,7 @@ export const pricingPlansRelations = relations(pricingPlans, ({ many }) => ({
   subscriptions: many(subscriptions),
 }));
 
-export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
+export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
   user: one(users, {
     fields: [subscriptions.userId],
     references: [users.id],
@@ -707,6 +760,18 @@ export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
   plan: one(pricingPlans, {
     fields: [subscriptions.planId],
     references: [pricingPlans.id],
+  }),
+  payments: many(payments),
+}));
+
+export const paymentsRelations = relations(payments, ({ one }) => ({
+  user: one(users, {
+    fields: [payments.userId],
+    references: [users.id],
+  }),
+  subscription: one(subscriptions, {
+    fields: [payments.subscriptionId],
+    references: [subscriptions.id],
   }),
 }));
 
@@ -800,6 +865,9 @@ export type NewUserPreferences = typeof userPreferences.$inferInsert;
 
 export type Subscription = typeof subscriptions.$inferSelect;
 export type NewSubscription = typeof subscriptions.$inferInsert;
+
+export type Payment = typeof payments.$inferSelect;
+export type NewPayment = typeof payments.$inferInsert;
 
 export type StudyStreak = typeof studyStreaks.$inferSelect;
 export type NewStudyStreak = typeof studyStreaks.$inferInsert;

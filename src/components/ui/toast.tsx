@@ -48,11 +48,16 @@ export function useToast() {
   const [toast, setToast] = React.useState<{
     message: string;
     type: 'success' | 'error' | 'info';
+    duration?: number;
   } | null>(null);
 
   const showToast = React.useCallback(
-    (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-      setToast({ message, type });
+    (
+      message: string,
+      type: 'success' | 'error' | 'info' = 'info',
+      duration?: number
+    ) => {
+      setToast({ message, type, duration });
     },
     []
   );
@@ -62,7 +67,12 @@ export function useToast() {
   }, []);
 
   const ToastComponent = toast ? (
-    <Toast message={toast.message} type={toast.type} onClose={hideToast} />
+    <Toast
+      message={toast.message}
+      type={toast.type}
+      duration={toast.duration}
+      onClose={hideToast}
+    />
   ) : null;
 
   return { showToast, ToastComponent };
