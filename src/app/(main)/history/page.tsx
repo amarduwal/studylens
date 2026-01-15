@@ -123,6 +123,7 @@ export default function HistoryPage() {
                     key={scan.id}
                     href={`/results/${scan.id}`}
                     className="block mb-4 last:mb-0"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <Card className="hover:shadow-md transition-shadow cursor-pointer">
                       <CardContent className="p-4">
@@ -155,8 +156,10 @@ export default function HistoryPage() {
                                 variant="ghost"
                                 size="icon"
                                 className="shrink-0 -mt-1 -mr-2"
-                                onClick={() => {
+                                onClick={(e) => {
                                   handleBookmark(scan.id);
+                                  e.stopPropagation();
+                                  e.preventDefault();
                                 }}
                               >
                                 <Bookmark
