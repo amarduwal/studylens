@@ -82,36 +82,53 @@ export default function ProfilePage() {
                   : userInfo?.email || session?.user?.email}
               </p>
               {isGuest && (
-                <Button className="mt-4" onClick={() => signIn()}>
-                  <LogIn className="h-4 w-4 mr-2" />
-                  Sign In
-                </Button>
+                <Card className="mt-6">
+                  <CardContent className="p-6 text-center">
+                    <div className="text-6xl mb-4">🎓</div>
+                    <h3 className="text-lg font-semibold mb-2">
+                      Sign in to unlock more features
+                    </h3>
+                    <ul className="text-sm text-[hsl(var(--muted-foreground))] space-y-2 mb-6">
+                      <li>✓ Sync your scans across devices</li>
+                      <li>✓ Save unlimited bookmarks</li>
+                      <li>✓ Track your study streaks</li>
+                      <li>✓ Customize your preferences</li>
+                      <li>✓ Access your full history</li>
+                    </ul>
+                    <Button className="mt-4" onClick={() => signIn()}>
+                      <LogIn className="h-4 w-4 mr-2" />
+                      Sign In to Get Started
+                    </Button>
+                  </CardContent>
+                </Card>
               )}
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-2 gap-4">
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-3xl font-bold text-[hsl(var(--primary))]">
-                    {isLoading ? '...' : stats?.totalScans || 0}
-                  </div>
-                  <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-                    Total Scans
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-3xl font-bold text-[hsl(var(--primary))]">
-                    {isLoading ? '...' : stats?.totalBookmarks || 0}
-                  </div>
-                  <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-                    Bookmarked
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
+            {!isGuest && (
+              <div className="grid grid-cols-2 gap-4">
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-3xl font-bold text-[hsl(var(--primary))]">
+                      {isLoading ? '...' : stats?.totalScans || 0}
+                    </div>
+                    <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
+                      Total Scans
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-3xl font-bold text-[hsl(var(--primary))]">
+                      {isLoading ? '...' : stats?.totalBookmarks || 0}
+                    </div>
+                    <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
+                      Bookmarked
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* Streak Card */}
             {!isGuest && stats && (
@@ -145,28 +162,30 @@ export default function ProfilePage() {
             )}
 
             {/* Settings */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Settings
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Link
-                  href="/settings"
-                  className="flex items-center justify-between hover:bg-[hsl(var(--muted))]/50 p-2 rounded-lg transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Languages className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-                    <span className="text-sm">Language & Preferences</span>
-                  </div>
-                  <span className="text-sm text-[hsl(var(--muted-foreground))]">
-                    →
-                  </span>
-                </Link>
-              </CardContent>
-            </Card>
+            {!isGuest && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="h-5 w-5" />
+                    Settings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Link
+                    href="/settings"
+                    className="flex items-center justify-between hover:bg-[hsl(var(--muted))]/50 p-2 rounded-lg transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Languages className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                      <span className="text-sm">Language & Preferences</span>
+                    </div>
+                    <span className="text-sm text-[hsl(var(--muted-foreground))]">
+                      →
+                    </span>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
 
             {/* About */}
             <Card>

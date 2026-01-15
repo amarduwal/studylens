@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
-import { Globe, User, LogOut, Crown } from 'lucide-react';
+import { Globe, User, LogOut, Crown, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useScanStore } from '@/stores/scan-store';
 import { LANGUAGES, SupportedLanguage } from '@/types';
@@ -127,6 +127,14 @@ export function Header() {
                       >
                         <User className="h-4 w-4" />
                         Profile
+                      </Link>
+                      <Link
+                        href="/settings"
+                        className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-[hsl(var(--muted))] transition-colors text-amber-900"
+                        onClick={() => setIsDropdownOpen(false)}
+                      >
+                        <Settings className="h-4 w-4" />
+                        Setting
                       </Link>
                       {session.user.subscriptionTier !== 'premium' && (
                         <Link
