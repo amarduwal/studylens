@@ -54,6 +54,28 @@ export interface ScanResult {
   isBookmarked?: boolean;
 }
 
+export interface ScanBookmarkResult {
+  id: string;
+  bookmarkId: string;
+  contentType: ContentType;
+  detectedLanguage: string;
+  extractedText: string;
+  imageUrl: string;
+  subject: string;
+  subjectIcon: string;
+  subjectColor: string;
+  difficulty: Difficulty;
+  topic: string;
+  notes: string;
+  tags: string[];
+  isPinned: boolean;
+  sortOrder: number;
+  folderName: string;
+  isBookmarked: boolean;
+  createdAt: Date;
+  bookmarkedAt: Date;
+}
+
 export interface ConversationMessage {
   id: string;
   role: "user" | "assistant";

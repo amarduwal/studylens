@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ScanResult, ConversationMessage, SupportedLanguage } from "@/types";
+import { ScanResult, ConversationMessage, SupportedLanguage, ScanBookmarkResult } from "@/types";
 import { v4 as uuidv4 } from 'uuid';
 
 interface ScanState {
@@ -41,7 +41,7 @@ interface ScanState {
   clearCurrentScan: () => void;
   reset: () => void;
   fetchScansFromDB: (sessionId: string) => Promise<void>;
-  fetchBookmarksFromDB: (sessionId: string) => Promise<ScanResult[]>;
+  fetchBookmarksFromDB: (sessionId: string) => Promise<ScanBookmarkResult[]>;
   toggleBookmarkDB: (scanId: string, sessionId?: string) => Promise<boolean>;
   getScanById: (scanId: string, sessionId: string) => Promise<ScanResult | null>;
 
@@ -109,14 +109,14 @@ export const useScanStore = create<ScanState>()(
           }
 
           return {
-          messages: [
-            ...state.messages,
-            {
-              ...message,
-              id: uuidv4(),
-              timestamp: new Date(),
-            },
-          ],
+            messages: [
+              ...state.messages,
+              {
+                ...message,
+                id: uuidv4(),
+                timestamp: new Date(),
+              },
+            ],
           };
         }),
 

@@ -4,18 +4,25 @@ import { useScanStore } from '@/stores/scan-store';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Clock, X } from 'lucide-react';
+import { Clock, NotebookText, Pin, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
-import { ScanResult } from '@/types';
+import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/components/ui/toast';
+import { MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { EditBookmarkModal } from './edit-bookmark-modal';
+import { ScanBookmarkResult } from '@/types';
 
 export default function SavedPage() {
   const { fetchBookmarksFromDB, toggleBookmarkDB, sessionId } = useScanStore();
-  const [bookmarkedScans, setBookmarkedScans] = useState<ScanResult[]>([]);
+  const [bookmarkedScans, setBookmarkedScans] = useState<ScanBookmarkResult[]>(
+    []
+  );
   const [isLoading, setIsLoading] = useState(true);
   const { showToast, ToastComponent } = useToast();
+  const [editingBookmark, setEditingBookmark] =
+    useState<ScanBookmarkResult | null>(null);
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadBookmarks() {
@@ -35,6 +42,29 @@ export default function SavedPage() {
       'success'
     );
   };
+
+  const handleBookmarkUpdated = async () => {
+    setIsLoading(true);
+    const scans = await fetchBookmarksFromDB(sessionId);
+    setBookmarkedScans(scans);
+    setIsLoading(false);
+  };
+
+  const sortedScans = useMemo(() => {
+    return [...bookmarkedScans].sort((a, b) => {
+      // 1. Pinned items ALWAYS first (regardless of sortOrder)
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+
+      // 2. Same pinned status → sort by sortOrder (ASCENDING: 0,1,2,3...)
+      if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
+        return (a.sortOrder || 0) - (b.sortOrder || 0);
+      }
+
+      // 3. Fallback: unpinned items by date (newest first)
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [bookmarkedScans]);
 
   if (isLoading) {
     return (
@@ -74,7 +104,7 @@ export default function SavedPage() {
               </div>
             ) : (
               <div className="grid gap-4">
-                {bookmarkedScans.map((scan) => (
+                {sortedScans.map((scan) => (
                   <Card
                     key={scan.id}
                     className="hover:shadow-md transition-shadow"
@@ -100,25 +130,88 @@ export default function SavedPage() {
                         )}
 
                         {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <Link href={`/results/${scan.id}`}>
-                            <h3 className="font-semibold mb-1 hover:text-[hsl(var(--primary))] transition-colors">
-                              {scan.topic}
-                            </h3>
-                            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-2">
-                              {scan.subject}
-                            </p>
-                            <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-2 mb-3">
-                              {scan.extractedText}
-                            </p>
-                          </Link>
+                        <div className="relative flex-1 min-w-0">
+                          <div className="absolute top-0 right-0 z-20 flex items-center">
+                            {scan.isPinned && (
+                              <div className="p-1 text-xs transition-colors text-[hsl(var(--primary))]">
+                                <Pin className="h-4 w-4" />
+                              </div>
+                            )}
 
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4 text-xs text-[hsl(var(--muted-foreground))]">
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {new Date(scan.createdAt).toLocaleDateString()}
-                              </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setOpenDropdownId(
+                                  openDropdownId === scan.id ? null : scan.id
+                                );
+                              }}
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+
+                            {/* Dropdown Menu */}
+                            {openDropdownId === scan.id && (
+                              <>
+                                {/* Backdrop to close dropdown */}
+                                <div
+                                  className="fixed inset-0 z-10"
+                                  onClick={() => setOpenDropdownId(null)}
+                                />
+                                <div className="absolute right-0 top-full mt-1 z-20 w-40 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] shadow-lg overflow-hidden">
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setEditingBookmark(scan);
+
+                                      setOpenDropdownId(null);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-[hsl(var(--muted))] transition-colors"
+                                  >
+                                    <Pencil className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={async (e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleToggleBookmark(scan.id);
+                                      setOpenDropdownId(null);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    Remove
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <Link href={`/results/${scan.id}`}>
+                              <h3 className="font-semibold hover:text-[hsl(var(--primary))] transition-colors line-clamp-1">
+                                {scan.topic}
+                              </h3>
+                              <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-1">
+                                {scan.subject}
+                              </p>
+                              <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-2">
+                                {scan.extractedText}
+                              </p>
+                            </Link>
+
+                            {/* Bottom info */}
+                            <div className="flex items-center text-xs text-[hsl(var(--muted-foreground))]">
+                              {scan.tags && scan.tags.length > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Tag className="h-3 w-3" />
+                                  {scan.tags.join(', ')}
+                                </span>
+                              )}
                               <span
                                 className={cn(
                                   'px-2 py-0.5 rounded-full',
@@ -133,16 +226,20 @@ export default function SavedPage() {
                                 {scan.difficulty}
                               </span>
                             </div>
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleToggleBookmark(scan.id)}
-                              className="text-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))]/10"
-                            >
-                              <X className="h-4 w-4 mr-1" />
-                              Remove
-                            </Button>
+                            <div className="flex">
+                              {scan.notes && (
+                                <span className="flex items-center gap-1 italic text-xs text-[hsl(var(--muted-foreground))]">
+                                  <NotebookText className="h-3 w-3 text-[hsl(var(--primary))]" />
+                                  {scan.notes.slice(0, 100) + '...'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex justify-end gap-4 text-xs text-[hsl(var(--muted-foreground))]">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {new Date(scan.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -153,6 +250,16 @@ export default function SavedPage() {
             )}
           </div>
         </div>
+
+        {/* Edit Bookmark Modal */}
+        {editingBookmark && (
+          <EditBookmarkModal
+            isOpen={!!editingBookmark}
+            onClose={() => setEditingBookmark(null)}
+            bookmark={editingBookmark}
+            onUpdate={handleBookmarkUpdated}
+          />
+        )}
       </main>
 
       {ToastComponent}
