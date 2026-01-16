@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { StepByStep as StepType } from '@/types';
+import { renderMarkdown } from '../common/markdown-parser';
 
 interface StepByStepProps {
   steps: StepType[];
@@ -70,12 +71,12 @@ export function StepByStep({ steps }: StepByStepProps) {
               {/* Step content */}
               {isExpanded && (
                 <div className="border-t border-[hsl(var(--border))] px-4 py-4 pl-16">
-                  <p className="text-[hsl(var(--muted-foreground))]">
-                    {step.explanation}
-                  </p>
+                  <div className="text-[hsl(var(--muted-foreground))]">
+                    {renderMarkdown(step.explanation)}
+                  </div>
                   {step.formula && (
                     <div className="mt-3 rounded-lg bg-[hsl(var(--muted))]/50 p-3 font-mono text-sm">
-                      {step.formula}
+                      {renderMarkdown(step.formula)}
                     </div>
                   )}
                 </div>

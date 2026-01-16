@@ -4,6 +4,7 @@ import { Lightbulb, BookOpen, Target, HelpCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScanResult } from '@/types';
 import { cn } from '@/lib/utils';
+import { renderMarkdown } from '../common/markdown-parser';
 
 interface ExplanationCardProps {
   result: ScanResult;
@@ -76,9 +77,9 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-[hsl(var(--muted-foreground))]">
-            {explanation.concept}
-          </p>
+          <div className="text-[hsl(var(--muted-foreground))]">
+            {renderMarkdown(explanation.concept)}
+          </div>
         </CardContent>
       </Card>
 
@@ -92,9 +93,9 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-[hsl(var(--muted-foreground))]">
-              {explanation.whyItMatters}
-            </p>
+            <div className="text-[hsl(var(--muted-foreground))]">
+              {renderMarkdown(explanation.whyItMatters)}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -113,7 +114,7 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
                   className="flex items-start gap-2 text-[hsl(var(--muted-foreground))]"
                 >
                   <span className="text-[hsl(var(--primary))]">•</span>
-                  {tip}
+                  {renderMarkdown(tip)}
                 </li>
               ))}
             </ul>
