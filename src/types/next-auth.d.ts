@@ -6,6 +6,7 @@ declare module "next-auth" {
     user: {
       id: string;
       subscriptionTier: "guest" | "free" | "premium" | "enterprise";
+      avavtarUrl?: string;
       plan: PricingPlan | null;
       preferences: {
         preferredLanguage: string;
@@ -18,6 +19,7 @@ declare module "next-auth" {
   interface User extends DefaultUser {
     id: string;
     subscriptionTier?: "guest" | "free" | "premium" | "enterprise";
+    avatarUrl?: string;
   }
 }
 

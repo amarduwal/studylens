@@ -92,10 +92,10 @@ export function Header() {
                   className="flex items-center gap-2"
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                 >
-                  {session.user.image ? (
+                  {session.user.avatarUrl ? (
                     <div className="relative w-8 h-8">
                       <Image
-                        src={session.user.image}
+                        src={session.user.avatarUrl}
                         alt={session.user.name || 'User'}
                         fill
                         className="rounded-full object-cover"
