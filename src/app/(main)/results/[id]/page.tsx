@@ -12,13 +12,14 @@ import { useScanStore } from '@/stores/scan-store';
 import { shareScan, canShare } from '@/lib/share';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
-import { ScanResult } from '@/types';
+import { Message, ScanResult } from '@/types';
 
 export default function ResultsPage() {
   const params = useParams();
   const router = useRouter();
   const scanId = params.id as string;
   const { showToast, ToastComponent } = useToast();
+  const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
 
   const {
     currentResult,
@@ -56,6 +57,11 @@ export default function ResultsPage() {
 
   useEffect(() => {
     async function loadConversation() {
+      if (hasLoadedMessages) return; // Prevent reloading
+
+      // Clear existing messages first
+      useScanStore.getState().clearMessages();
+
       // Get conversation for this scan
       const convRes = await fetch(`/api/conversations?scanId=${scanId}`);
       const convData = await convRes.json();
@@ -71,18 +77,27 @@ export default function ResultsPage() {
 
         if (msgData.success && msgData.data) {
           // Populate store with existing messages
-          msgData.data.forEach((msg: any) => {
-            useScanStore.getState().addMessage({
-              role: msg.role,
-              content: msg.content,
-            });
-          });
+          const formattedMessages = msgData.data.map((msg: Message) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.createdAt),
+          }));
+
+          useScanStore.getState().setMessages(formattedMessages);
+          setHasLoadedMessages(true);
         }
       }
     }
 
     loadConversation();
   }, [scanId]);
+
+  useEffect(() => {
+    return () => {
+      useScanStore.getState().clearMessages();
+    };
+  }, []);
 
   const bookmarked = result ? isBookmarked(result.id) : false;
 

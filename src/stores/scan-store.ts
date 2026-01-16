@@ -2,7 +2,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ScanResult, ConversationMessage, SupportedLanguage } from "@/types";
 import { v4 as uuidv4 } from 'uuid';
-import { Scan } from "@/db";
 
 interface ScanState {
   // Current scan
@@ -16,6 +15,7 @@ interface ScanState {
 
   // Conversation
   messages: ConversationMessage[];
+  setMessages: (messages: ConversationMessage[]) => void;
   isLoadingResponse: boolean;
 
   // Settings
@@ -93,7 +93,22 @@ export const useScanStore = create<ScanState>()(
       setSelectedLanguage: (language) => set({ selectedLanguage: language }),
 
       addMessage: (message) =>
-        set((state) => ({
+        set((state) => {
+          // Check if message with same content and role already exists in last few messages
+          const isDuplicate = state.messages
+            .slice(-5) // Check last 5 messages
+            .some(
+              (m) =>
+                m.role === message.role &&
+                m.content === message.content &&
+                Date.now() - new Date(m.timestamp).getTime() < 1000 // Within 1 second
+            );
+
+          if (isDuplicate) {
+            return state; // Don't add duplicate
+          }
+
+          return {
           messages: [
             ...state.messages,
             {
@@ -102,7 +117,10 @@ export const useScanStore = create<ScanState>()(
               timestamp: new Date(),
             },
           ],
-        })),
+          };
+        }),
+
+      setMessages: (messages) => set({ messages }),
 
       clearMessages: () => set({ messages: [] }),
 

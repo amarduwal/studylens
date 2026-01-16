@@ -100,6 +100,24 @@ export interface FollowUpResponse {
   };
 }
 
+export interface Message {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  contentHtml?: string | null;
+  attachments?: string;
+  tokenCount?: number | null;
+  processingTimeMs?: number | null;
+  modelUsed?: string | null;
+  wasHelpful?: boolean | null;
+  feedbackType?: string | null;
+  status?: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+
 // Language configuration
 export const LANGUAGES: Record<SupportedLanguage, { name: string; nativeName: string; direction: "ltr" | "rtl" }> = {
   en: { name: "English", nativeName: "English", direction: "ltr" },

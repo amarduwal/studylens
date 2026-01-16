@@ -128,39 +128,51 @@ export function FollowUpChat({
         {messages.length > 0 && (
           <div className="max-h-80 space-y-4 overflow-y-auto rounded-lg bg-[hsl(var(--muted))]/50 p-4">
             {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  'flex gap-3',
-                  message.role === 'user' && 'flex-row-reverse'
-                )}
-              >
+              <div key={message.id} className="flex flex-col gap-1">
                 <div
                   className={cn(
-                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
-                    message.role === 'user'
-                      ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                      : 'bg-[hsl(var(--secondary))]'
+                    'flex gap-3',
+                    message.role === 'user' && 'flex-row-reverse'
                   )}
                 >
-                  {message.role === 'user' ? (
-                    <User className="h-4 w-4" />
-                  ) : (
-                    <Bot className="h-4 w-4" />
-                  )}
+                  <div
+                    className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+                      message.role === 'user'
+                        ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                        : 'bg-[hsl(var(--secondary))]'
+                    )}
+                  >
+                    {message.role === 'user' ? (
+                      <User className="h-4 w-4" />
+                    ) : (
+                      <Bot className="h-4 w-4" />
+                    )}
+                  </div>
+                  <div
+                    className={cn(
+                      'rounded-2xl px-4 py-2 max-w-[80%]',
+                      message.role === 'user'
+                        ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                        : 'bg-[hsl(var(--background))] border border-[hsl(var(--border))]'
+                    )}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">
+                      {message.content}
+                    </p>
+                  </div>
                 </div>
-                <div
+                <span
                   className={cn(
-                    'rounded-2xl px-4 py-2 max-w-[80%]',
-                    message.role === 'user'
-                      ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                      : 'bg-[hsl(var(--background))] border border-[hsl(var(--border))]'
+                    'text-[10px] text-[hsl(var(--muted-foreground))]',
+                    message.role === 'user' ? 'text-right mr-11' : 'ml-11'
                   )}
                 >
-                  <p className="text-sm whitespace-pre-wrap">
-                    {message.content}
-                  </p>
-                </div>
+                  {new Date(message.timestamp).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
               </div>
             ))}
 
