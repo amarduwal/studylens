@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ScanResult, ConversationMessage, SupportedLanguage, ScanBookmarkResult, LimitError } from "@/types";
+import { ScanResult, ConversationMessage, SupportedLanguage, ScanBookmarkResult, LimitError, BookmarkResponse } from "@/types";
 import { v4 as uuidv4 } from 'uuid';
 
 interface ScanState {
@@ -45,7 +45,7 @@ interface ScanState {
   reset: () => void;
   fetchScansFromDB: (sessionId: string) => Promise<void>;
   fetchBookmarksFromDB: (sessionId: string) => Promise<ScanBookmarkResult[]>;
-  toggleBookmarkDB: (scanId: string, sessionId?: string) => Promise<boolean>;
+  toggleBookmarkDB: (scanId: string, sessionId?: string) => Promise<BookmarkResponse>;
   getScanById: (scanId: string, sessionId: string) => Promise<ScanResult | null>;
 
 }
@@ -209,15 +209,20 @@ export const useScanStore = create<ScanState>()(
           });
           const data = await res.json();
 
+          if (data.error?.code === "AUTH_REQUIRED") {
+            // Return special flag for auth required
+            return { success: false, authRequired: true, message: data.error };
+          }
+
           if (res.ok) {
             // Refresh scans to update bookmark status
             await get().fetchScansFromDB(get().sessionId);
-            // return true;
+            return { success: true, isBookmarked: data.data.isBookmarked };
           }
-          return !data.data.isBookmarked;
+          return { success: false, authRequired: false };
         } catch (error) {
           console.error("Failed to toggle bookmark:", error);
-          return false;
+          return { success: false, authRequired: false };
         }
       },
 

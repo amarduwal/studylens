@@ -78,6 +78,13 @@ export interface ScanBookmarkResult {
   bookmarkedAt: Date;
 }
 
+export interface BookmarkResponse {
+  success: boolean;
+  authRequired?: boolean;
+  message?: string;
+  isBookmarked?: boolean
+}
+
 export interface ConversationMessage {
   id: string;
   role: "user" | "assistant";

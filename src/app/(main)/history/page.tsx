@@ -10,8 +10,10 @@ import Image from 'next/image';
 import { useScanStore } from '@/stores/scan-store';
 import { useToast } from '@/components/ui/toast';
 import { getImageUrl } from '@/lib/image-utils';
+import { useSession } from 'next-auth/react';
 
 export default function HistoryPage() {
+  const { data: session } = useSession();
   const {
     scanHistory,
     isLoading,
@@ -39,9 +41,15 @@ export default function HistoryPage() {
   const handleBookmark = async (scanId: string) => {
     if (!scanId) return;
 
+    if (!session?.user) {
+      // Show sign-in prompt
+      showToast('Sign in to bookmark scans', 'info');
+      return;
+    }
+
     const result = await toggleBookmarkDB(scanId); // Changed
     showToast(
-      result ? 'Removed from bookmarks' : 'Added to bookmarks',
+      result.isBookmarked ? 'Added to bookmarks' : 'Removed from bookmarks',
       'success'
     );
   };

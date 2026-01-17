@@ -2,20 +2,21 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Bookmark, Share2 } from 'lucide-react';
+import { ArrowLeft, Bookmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ImagePreview } from '@/components/scanner/image-preview';
 import { ExplanationCard } from '@/components/results/explanation-card';
 import { StepByStep } from '@/components/results/step-by-step';
 import { FollowUpChat } from '@/components/results/follow-up-chat';
 import { useScanStore } from '@/stores/scan-store';
-import { shareScan, canShare } from '@/lib/share';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import { Message, ScanResult } from '@/types';
 import { getImageUrl } from '@/lib/image-utils';
+import { useSession } from 'next-auth/react';
 
 export default function ResultsPage() {
+  const { data: session } = useSession();
   const params = useParams();
   const router = useRouter();
   const scanId = params.id as string;
@@ -104,25 +105,18 @@ export default function ResultsPage() {
 
   const handleBookmark = async () => {
     if (!result) return;
+
+    if (!session?.user) {
+      // Show sign-in prompt
+      showToast('Sign in to bookmark scans', 'info');
+      return;
+    }
+
     const response = await toggleBookmarkDB(result.id); // Changed
     showToast(
-      response ? 'Removed from bookmarks' : 'Added to bookmarks',
+      response.isBookmarked ? 'Added to bookmarks' : 'Removed from bookmarks',
       'success'
     );
-  };
-
-  const handleShare = async () => {
-    if (!result) return;
-
-    const success = await shareScan(result);
-    if (success) {
-      showToast(
-        canShare() ? 'Shared successfully' : 'Copied to clipboard',
-        'success'
-      );
-    } else {
-      showToast('Failed to share', 'error');
-    }
   };
 
   if (!result) {
@@ -191,9 +185,6 @@ export default function ResultsPage() {
                       'fill-[hsl(var(--primary))] text-[hsl(var(--primary))]'
                   )}
                 />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={handleShare}>
-                <Share2 className="h-5 w-5" />
               </Button>
             </div>
           </div>

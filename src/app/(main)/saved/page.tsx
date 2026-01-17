@@ -4,7 +4,7 @@ import { useScanStore } from '@/stores/scan-store';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Clock, NotebookText, Pin, Tag } from 'lucide-react';
+import { Bookmark, Clock, LogIn, NotebookText, Pin, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
@@ -13,8 +13,12 @@ import { MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { EditBookmarkModal } from './edit-bookmark-modal';
 import { ScanBookmarkResult } from '@/types';
 import { getImageUrl } from '@/lib/image-utils';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 export default function SavedPage() {
+  const { status } = useSession();
+  const router = useRouter();
   const { fetchBookmarksFromDB, toggleBookmarkDB, sessionId } = useScanStore();
   const [bookmarkedScans, setBookmarkedScans] = useState<ScanBookmarkResult[]>(
     []
@@ -39,7 +43,7 @@ export default function SavedPage() {
     setBookmarkedScans((prev) => prev.filter((s) => s.id !== scanId));
     const result = await toggleBookmarkDB(scanId, sessionId);
     showToast(
-      result ? 'Removed from bookmarks' : 'Added to bookmarks',
+      result.isBookmarked ? 'Added to bookmarks' : 'Removed from bookmarks',
       'success'
     );
   };
@@ -74,6 +78,64 @@ export default function SavedPage() {
         <p className="text-[hsl(var(--muted-foreground))]">
           Loading bookmarks...
         </p>
+      </div>
+    );
+  }
+
+  if (status === 'unauthenticated') {
+    return (
+      <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
+        <main className="flex-1 overflow-y-auto pb-20">
+          <div className="mx-auto w-full max-w-2xl px-4 py-6">
+            <div className="text-center py-12">
+              <div className="w-20 h-20 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center mx-auto mb-4">
+                <Bookmark className="h-10 w-10 text-[hsl(var(--primary))]" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">
+                Save Your Favorite Scans
+              </h2>
+              <p className="text-[hsl(var(--muted-foreground))] mb-6">
+                Sign in to bookmark scans and access them anytime, anywhere
+              </p>
+              <div className="space-y-3 max-w-sm mx-auto">
+                <div className="flex items-start gap-3 text-start">
+                  <div className="w-6 h-6 rounded-full bg-[hsl(var(--primary))]/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-[hsl(var(--primary))]">
+                      1
+                    </span>
+                  </div>
+                  <p className="text-sm">
+                    Save unlimited scans for quick reference
+                  </p>
+                </div>
+                <div className="flex items-start gap-3 text-start">
+                  <div className="w-6 h-6 rounded-full bg-[hsl(var(--primary))]/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-[hsl(var(--primary))]">
+                      2
+                    </span>
+                  </div>
+                  <p className="text-sm">Organize with tags and folders</p>
+                </div>
+                <div className="flex items-start gap-3 text-start">
+                  <div className="w-6 h-6 rounded-full bg-[hsl(var(--primary))]/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-[hsl(var(--primary))]">
+                      3
+                    </span>
+                  </div>
+                  <p className="text-sm">Sync across all your devices</p>
+                </div>
+              </div>
+              <Button
+                onClick={() => router.push('/login?callbackUrl=/saved')}
+                className="mt-8"
+                size="lg"
+              >
+                <LogIn className="h-4 w-4 mr-2" />
+                Sign In to Save Bookmarks
+              </Button>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
