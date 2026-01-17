@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         data: result.rows.map((r) => ({
           id: r.scan_id,
           bookmarkId: r.bookmark_id,
+          storageKey: r.storage_key,
           contentType: r.content_type,
           detectedLanguage: r.detected_language,
           extractedText: r.excerpt,
@@ -62,6 +63,7 @@ export async function GET(request: NextRequest) {
         s.detected_language,
         LEFT(s.extracted_text, 200) AS excerpt,
         si.original_filename,
+        si.storage_key,
         sub.name AS subject_name,
         t.name AS topic_name,
         s.created_at AS scan_date,
@@ -81,6 +83,7 @@ export async function GET(request: NextRequest) {
       data: result.rows.map((r) => ({
         id: r.scan_id,
         bookmarkId: r.bookmark_id,
+        storageKey: r.storage_key,
         contentType: r.content_type,
         extractedText: r.excerpt,
         imageUrl: r.original_filename,

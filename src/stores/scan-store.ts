@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ScanResult, ConversationMessage, SupportedLanguage, ScanBookmarkResult } from "@/types";
+import { ScanResult, ConversationMessage, SupportedLanguage, ScanBookmarkResult, LimitError } from "@/types";
 import { v4 as uuidv4 } from 'uuid';
 
 interface ScanState {
@@ -10,6 +10,7 @@ interface ScanState {
   currentResult: ScanResult | null;
   isAnalyzing: boolean;
   error: string | null;
+  limitError: LimitError | null;
   isLoading: boolean;
   hasFetched: boolean;
 
@@ -31,6 +32,8 @@ interface ScanState {
   setCurrentResult: (result: ScanResult | null) => void;
   setIsAnalyzing: (isAnalyzing: boolean) => void;
   setError: (error: string | null) => void;
+  setLimitError: (error: LimitError) => void;
+  clearLimitError: () => void;
   setSelectedLanguage: (language: SupportedLanguage) => void;
   addMessage: (message: Omit<ConversationMessage, "id" | "timestamp">) => void;
   clearMessages: () => void;
@@ -56,6 +59,7 @@ export const useScanStore = create<ScanState>()(
       currentResult: null,
       isAnalyzing: false,
       error: null,
+      limitError: null,
       messages: [],
       isLoadingResponse: false,
       selectedLanguage: "en",
@@ -89,6 +93,10 @@ export const useScanStore = create<ScanState>()(
       setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
 
       setError: (error) => set({ error, isAnalyzing: false }),
+
+      setLimitError: (error) => set({ limitError: error }),
+
+      clearLimitError: () => set({ limitError: null }),
 
       setSelectedLanguage: (language) => set({ selectedLanguage: language }),
 

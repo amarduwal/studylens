@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Camera, Sparkles, Loader2 } from 'lucide-react';
+import { Camera, Sparkles, Loader2, Crown, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CameraCapture } from '@/components/scanner/camera-capture';
 import { ImageUpload } from '@/components/scanner/image-upload';
@@ -12,16 +12,20 @@ import { useScanStore } from '@/stores/scan-store';
 import { fileToBase64 } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { UsageDisplay } from '@/components/usage-display';
+import { getTimeUntilReset, UpgradeBenefit } from '@/components/common/helper';
+import Link from 'next/link';
 
 export default function HomePage() {
   const router = useRouter();
   const [showCamera, setShowCamera] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
 
   const {
     currentImage,
     currentImageFile,
     error,
+    limitError,
     selectedLanguage,
     setCurrentImage,
     setCurrentResult,
@@ -66,6 +70,12 @@ export default function HomePage() {
         setCurrentResult(resultWithImage);
         router.push(`/results/${data.data.id}`);
       } else {
+        // ✅ LIMIT_EXCEEDED special handling
+        if (data.error?.code === 'LIMIT_EXCEEDED') {
+          useScanStore.getState().setLimitError(data.error);
+          setShowUpgradeDialog(true);
+          return;
+        }
         setError(data.error?.message || 'Failed to analyze image');
       }
     } catch (err) {
@@ -218,6 +228,101 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+
+        {/* Upgrade Dialog */}
+        {showUpgradeDialog && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm animate-in fade-in-0"
+              onClick={() => setShowUpgradeDialog(false)}
+            />
+
+            {/* Modal */}
+            <div className="fixed inset-x-4 top-[50%] z-50 translate-y-[-50%] mx-auto max-w-sm animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-4">
+              <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] shadow-2xl overflow-hidden">
+                {/* Header with gradient */}
+                <div className="bg-gradient-to-br from-[hsl(var(--primary))] to-purple-600 p-6 text-white text-center">
+                  <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Crown className="h-8 w-8" />
+                  </div>
+                  <h2 className="text-xl font-bold mb-1">
+                    Daily Limit Reached
+                  </h2>
+                  <p className="text-white/80 text-sm">
+                    You&quot;ve used all {limitError?.limit || 10} scans for
+                    today
+                  </p>
+                </div>
+
+                {/* Content */}
+                <div className="p-5">
+                  {/* Reset Timer */}
+                  <div className="flex items-center justify-center gap-2 text-sm text-[hsl(var(--muted-foreground))] mb-5 p-3 rounded-xl bg-[hsl(var(--muted))]/50">
+                    <Clock className="h-4 w-4" />
+                    <span>
+                      Resets in {getTimeUntilReset(limitError?.resetsAt)}
+                    </span>
+                  </div>
+
+                  {/* Benefits */}
+                  <div className="space-y-2.5 mb-6">
+                    <UpgradeBenefit
+                      emoji="🚀"
+                      text="Unlimited scans every day"
+                      color="emerald"
+                    />
+                    <UpgradeBenefit
+                      emoji="⚡"
+                      text="Priority AI - 3x faster results"
+                      color="blue"
+                    />
+                    <UpgradeBenefit
+                      emoji="🧠"
+                      text="Advanced explanations & practice"
+                      color="purple"
+                    />
+                    <UpgradeBenefit
+                      emoji="📱"
+                      text="Export to PDF & share"
+                      color="amber"
+                    />
+                  </div>
+
+                  {/* Price teaser */}
+                  {/* <div className="text-center mb-5 p-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30">
+                    <span className="text-2xl font-bold text-[hsl(var(--primary))]">
+                      $9.99
+                    </span>
+                    <span className="text-[hsl(var(--muted-foreground))]">
+                      /month
+                    </span>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+                      Cancel anytime • 7-day free trial
+                    </p>
+                  </div> */}
+
+                  {/* Actions */}
+                  <div className="space-y-2">
+                    <Link href="/pricing" className="block">
+                      <Button className="w-full h-12 bg-gradient-to-r from-[hsl(var(--secondary))] to-purple-600 hover:opacity-90">
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Upgrade to Pro
+                      </Button>
+                    </Link>
+                    <Button
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => setShowUpgradeDialog(false)}
+                    >
+                      Maybe Later
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </main>
 
       <BottomNav />

@@ -4,11 +4,11 @@ import { SupportedLanguage, AnalyzeResponse } from "@/types";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { scans, dailyUsage, users, scanImages } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { scans, scanImages } from "@/db/schema";
 import { v4 as uuidv4 } from "uuid";
-import crypto from "crypto";
 import { findOrCreateSubject, findOrCreateTopic } from "@/lib/subjects-topics";
+import { uploadBase64Image } from "@/lib/r2";
+import { checkScanLimit } from "@/lib/usage";
 
 // Request validation schema
 const analyzeSchema = z.object({
@@ -24,8 +24,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
   try {
     const session = await auth();
     const body = await request.json();
-
-    const trackingUserId = session?.user?.id || null;
 
     // Validate request
     const validationResult = analyzeSchema.safeParse(body);
@@ -43,6 +41,27 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
     }
 
     const { image, mimeType, language, educationLevel, sessionId, filename } = validationResult.data;
+
+    const trackingUserId = session?.user?.id || null;
+    const trackingSessionId = trackingUserId ? null : (sessionId || body.sessionId);
+
+    const limitCheck = await checkScanLimit(trackingUserId, trackingSessionId || sessionId);
+
+    if (!limitCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "LIMIT_EXCEEDED",
+            message: limitCheck.message || "Daily scan limit reached.",
+            remaining: 0,
+            limit: limitCheck.limit,
+            resetsAt: limitCheck.resetsAt.toISOString(),
+          },
+        },
+        { status: 429 }
+      );
+    }
 
     // Check if image is too large (base64 encoded)
     const imageSizeBytes = (image.length * 3) / 4;
@@ -79,11 +98,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       }
     }
 
+    // Upload image to R2
+    const uploadResult = await uploadBase64Image(image, {
+      originalFilename: filename,
+      mimeType,
+      folder: `scans/${trackingUserId || trackingSessionId}`,
+      userId: trackingUserId || undefined,
+      sessionId: trackingSessionId,
+    });
+
     // Generate scan ID
     const scanId = uuidv4();
 
-    // Store in database
-    const [newScan] = await db
+    // Store scan in database
+    // IMPORTANT: The trigger will automatically:
+    // 1. Increment daily_usage (scan_count)
+    // 2. Update user totals (total_scans, last_active_at)
+    // 3. Update study streaks
+    await db
       .insert(scans)
       .values({
         id: scanId,
@@ -105,81 +137,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       })
       .returning();
 
-    // Store image
-    // Generate file hash for duplicate detection
-    // const imageId = uuidv4();
-    const imageBuffer = Buffer.from(image, 'base64');
-    const fileHash = crypto.createHash('sha256').update(imageBuffer).digest('hex');
-
-    // For now, store as base64 in storage_key (you can later upload to R2/S3)
-    // const storageKey = `scans/${scanId}/${imageId}.${mimeType.split('/')[1]}`;
-
+    // Save image reference
     await db.insert(scanImages).values({
       scanId: scanId,
-      storageProvider: "local", // Change to "r2" or "s3" when you implement cloud storage
-      storageKey: '/Screenshot-1.png', // Store path/key instead of base64, replace with cloud URL later
+      storageProvider: "r2",
+      storageKey: uploadResult.publicUrl,
       originalFilename: filename || `scan-${Date.now()}.${mimeType.split('/')[1]}`,
-      mimeType: mimeType,
-      fileSize: imageSizeBytes,
-      fileHash: fileHash,
+      mimeType: uploadResult.mimeType,
+      fileSize: uploadResult.fileSize,
+      fileHash: uploadResult.fileHash,
       isProcessed: true,
       sortOrder: 0,
     });
-
-
-    // Update user's scan count
-    if (session?.user?.id) {
-      await db
-        .update(users)
-        .set({
-          totalScans: sql`${users.totalScans} + 1`,
-          lastActiveAt: new Date(),
-        })
-        .where(eq(users.id, session.user.id));
-    }
-
-    // Update daily usage
-    const today = new Date().toISOString().split('T')[0];
-    const trackingSessionId = trackingUserId ? null : (sessionId || body.sessionId);
-    const [existingUsage] = await db
-      .select()
-      .from(dailyUsage)
-      .where(
-        session?.user?.id
-          ? and(
-            eq(dailyUsage.userId, session.user.id),
-            sql`DATE(${dailyUsage.usageDate}) = ${today}`
-          )
-          : and(
-            eq(dailyUsage.sessionId, trackingSessionId || ""),
-            sql`DATE(${dailyUsage.usageDate}) = ${today}`
-          )
-      )
-      .limit(1);
-
-    if (existingUsage) {
-      await db
-        .update(dailyUsage)
-        .set({
-          scanCount: sql`${dailyUsage.scanCount} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(eq(dailyUsage.id, existingUsage.id));
-    } else {
-      await db.insert(dailyUsage).values({
-        userId: trackingUserId,
-        sessionId: trackingSessionId,
-        scanCount: 1,
-        messageCount: 0,
-        practiceCount: 0,
-      });
-    }
 
     return NextResponse.json({
       success: true,
       data: {
         ...result,
         id: scanId,
+        imageUrl: uploadResult.publicUrl,
+        usage: {
+          remaining: limitCheck.remaining - 1,
+          limit: limitCheck.limit,
+          resetsAt: limitCheck.resetsAt.toISOString(),
+        },
       },
     });
   } catch (error) {

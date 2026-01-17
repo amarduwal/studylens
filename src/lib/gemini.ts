@@ -67,6 +67,7 @@ export async function analyzeImage(
     const scanResult: ScanResult = {
       id: uuidv4(),
       imageUrl: "", // Will be set after storage
+      storageKey: parsed.storageKey,
       contentType: parsed.contentType as ContentType,
       subject: parsed.subject || "General",
       topic: parsed.topic || "Unknown",

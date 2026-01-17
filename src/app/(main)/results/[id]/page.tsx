@@ -13,6 +13,7 @@ import { shareScan, canShare } from '@/lib/share';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import { Message, ScanResult } from '@/types';
+import { getImageUrl } from '@/lib/image-utils';
 
 export default function ResultsPage() {
   const params = useParams();
@@ -207,7 +208,11 @@ export default function ResultsPage() {
             {result.imageUrl && (
               <div className="rounded-2xl overflow-hidden border border-[hsl(var(--border))] shadow-sm">
                 <ImagePreview
-                  src={result.imageUrl}
+                  src={
+                    getImageUrl(result.storageKey) ||
+                    result.imageUrl ||
+                    '/Screenshot-1.png'
+                  }
                   onClear={() => router.push('/')}
                 />
               </div>

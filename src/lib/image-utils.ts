@@ -1,0 +1,33 @@
+const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_URL || "";
+
+/**
+ * Get public URL from storage key (client-side)
+ */
+export function getImageUrl(storageKey: string | null | undefined): string | null {
+  if (!storageKey) return null;
+
+  // If already a full URL, return as-is
+  if (storageKey.startsWith("http")) return storageKey;
+
+  // If base64, return as-is
+  if (storageKey.startsWith("data:")) return storageKey;
+
+  return `${R2_PUBLIC_URL}/${storageKey}`;
+}
+
+/**
+ * Get thumbnail URL from storage key
+ */
+export function getThumbnailUrl(
+  storageKey: string | null | undefined,
+  thumbnailKey?: string | null
+): string | null {
+  if (thumbnailKey) {
+    return `${R2_PUBLIC_URL}/${thumbnailKey}`;
+  }
+
+  if (!storageKey) return null;
+
+  // Generate thumbnail key from original
+  return `${R2_PUBLIC_URL}/${storageKey.replace(/(\.[^.]+)$/, "_thumb$1")}`;
+}

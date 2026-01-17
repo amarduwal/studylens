@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import { useScanStore } from '@/stores/scan-store';
 import { useToast } from '@/components/ui/toast';
+import { getImageUrl } from '@/lib/image-utils';
 
 export default function HistoryPage() {
   const {
@@ -132,7 +133,10 @@ export default function HistoryPage() {
                           {scan.imageUrl && (
                             <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-[hsl(var(--muted))] shrink-0">
                               <Image
-                                src={scan.imageUrl}
+                                src={
+                                  getImageUrl(scan.imageUrl) ||
+                                  '/Screenshot-1.png'
+                                }
                                 alt="Scan thumbnail"
                                 fill
                                 className="object-cover"

@@ -79,3 +79,53 @@ export function DifficultyBadge({ difficulty }: { difficulty: string }) {
     </span>
   );
 }
+
+export function UpgradeBenefit({
+  emoji,
+  text,
+  color,
+}: {
+  emoji: string;
+  text: string;
+  color: 'emerald' | 'blue' | 'purple' | 'amber';
+}) {
+  const colorClasses = {
+    emerald:
+      'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+    blue: 'bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400',
+    purple:
+      'bg-purple-500/10 border-purple-500/20 text-purple-600 dark:text-purple-400',
+    amber:
+      'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400',
+  };
+
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 p-3 rounded-xl border transition-all hover:scale-[1.02]',
+        colorClasses[color]
+      )}
+    >
+      <span className="text-lg">{emoji}</span>
+      <span className="font-medium text-sm">{text}</span>
+    </div>
+  );
+}
+
+export function getTimeUntilReset(resetTime?: string): string {
+  if (!resetTime) return 'midnight';
+
+  const reset = new Date(resetTime);
+  const now = new Date();
+  const diffMs = reset.getTime() - now.getTime();
+
+  if (diffMs <= 0) return 'soon';
+
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes} minutes`;
+}

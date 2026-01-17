@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast';
 import { MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { EditBookmarkModal } from './edit-bookmark-modal';
 import { ScanBookmarkResult } from '@/types';
+import { getImageUrl } from '@/lib/image-utils';
 
 export default function SavedPage() {
   const { fetchBookmarksFromDB, toggleBookmarkDB, sessionId } = useScanStore();
@@ -112,14 +113,17 @@ export default function SavedPage() {
                     <CardContent className="p-4">
                       <div className="flex items-start gap-4">
                         {/* Image */}
-                        {scan.imageUrl && (
+                        {scan.storageKey && (
                           <Link
                             href={`/results/${scan.id}`}
                             className="shrink-0"
                           >
                             <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-[hsl(var(--muted))] shrink-0">
                               <Image
-                                src={scan.imageUrl}
+                                src={
+                                  getImageUrl(scan.storageKey) ||
+                                  '/Screenshot-1.png'
+                                }
                                 alt="Scan thumbnail"
                                 fill
                                 className="object-cover"

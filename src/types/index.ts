@@ -41,6 +41,7 @@ export interface Explanation {
 export interface ScanResult {
   id: string;
   imageUrl: string;
+  storageKey: string;
   contentType: ContentType;
   subject: string;
   topic: string;
@@ -57,6 +58,7 @@ export interface ScanResult {
 export interface ScanBookmarkResult {
   id: string;
   bookmarkId: string;
+  storageKey: string;
   contentType: ContentType;
   detectedLanguage: string;
   extractedText: string;
@@ -91,10 +93,17 @@ export interface AnalyzeRequest {
 
 export interface AnalyzeResponse {
   success: boolean;
-  data?: ScanResult;
+  data?: ScanResult & {
+    usage?: {
+      remaining: number;
+      limit: number;
+    };
+  };
   error?: {
     code: string;
     message: string;
+    remaining?: number;
+    limit?: number;
   };
 }
 
@@ -139,6 +148,13 @@ export interface Message {
   updatedAt: string | Date;
 }
 
+export interface LimitError {
+  code: string;
+  message: string;
+  remaining: number;
+  limit: number;
+  resetsAt: string;
+}
 
 // Language configuration
 export const LANGUAGES: Record<SupportedLanguage, { name: string; nativeName: string; direction: "ltr" | "rtl" }> = {

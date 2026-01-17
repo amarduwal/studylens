@@ -1,290 +1,174 @@
 import { db } from "@/db";
-import { dailyUsage, pricingPlans, subscriptions, users } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
-import { auth } from "./auth";
-
-export interface UsageLimits {
-  dailyScanLimit: number;
-  monthlyScanLimit: number | null;
-  maxImageSizeMb: number | null;
-  maxFollowupQuestions: number | null;
-  maxPracticeProblems: number | null;
-  maxBookmarks: number | null;
-  maxHistoryDays: number | null;
-  features: string[];  // Changed: now JSONB array
-  canAccessPremiumSubjects: boolean;
-  canExportPdf: boolean;
-}
-
-export interface CurrentUsage {
-  scanCount: number;
-  messageCount: number;
-  practiceCount: number;
-}
+import { sql } from "drizzle-orm";
 
 export interface UsageCheck {
   allowed: boolean;
   remaining: number;
   limit: number;
+  resetsAt: Date;
   message?: string;
 }
 
 /**
- * Get plan limits for a user or session
- */
-export async function getPlanLimits(
-  userId?: string | null,
-  sessionId?: string | null
-): Promise<UsageLimits> {
-  // Default guest limits
-  const guestPlan = await db.query.pricingPlans.findFirst({
-    where: eq(pricingPlans.slug, "guest"),
-  });
-
-  const defaultLimits: UsageLimits = {
-    dailyScanLimit: guestPlan?.dailyScanLimit ?? 1,
-    monthlyScanLimit: guestPlan?.monthlyScanLimit ?? null,
-    maxImageSizeMb: 5,
-    maxFollowupQuestions: 1,
-    maxPracticeProblems: 1,
-    maxBookmarks: guestPlan?.maxBookmarks ?? 5,
-    maxHistoryDays: guestPlan?.maxHistoryDays ?? 0,
-    features: (guestPlan?.features as string[]) ?? [],
-    canAccessPremiumSubjects: false,
-    canExportPdf: false,
-  };
-
-  if (!userId) {
-    return defaultLimits;
-  }
-
-  // Get user's subscription and plan
-  const userSub = await db.query.subscriptions.findFirst({
-    where: eq(subscriptions.userId, userId),
-    with: {
-      plan: true,
-    },
-  });
-
-  if (!userSub || !userSub.plan) {
-    // Return free plan limits for users without subscription
-    const freePlan = await db.query.pricingPlans.findFirst({
-      where: eq(pricingPlans.slug, "free"),  // Changed: name → slug
-    });
-
-    return {
-      dailyScanLimit: freePlan?.dailyScanLimit ?? 10,
-      monthlyScanLimit: freePlan?.monthlyScanLimit ?? null,
-      maxImageSizeMb: defaultLimits.maxImageSizeMb,
-      maxFollowupQuestions: defaultLimits.maxFollowupQuestions,
-      maxPracticeProblems: defaultLimits.maxPracticeProblems,
-      maxBookmarks: freePlan?.maxBookmarks ?? 20,
-      maxHistoryDays: freePlan?.maxHistoryDays ?? 7,
-      features: (freePlan?.features as string[]) ?? [],
-      canAccessPremiumSubjects: false,
-      canExportPdf: false,
-    };
-  }
-
-  return {
-    dailyScanLimit: userSub.plan.dailyScanLimit ?? -1,  // NULL = unlimited
-    monthlyScanLimit: userSub.plan.monthlyScanLimit,
-    maxImageSizeMb: 10,
-    maxFollowupQuestions: 2,
-    maxPracticeProblems: -1,
-    maxBookmarks: userSub.plan.maxBookmarks,
-    maxHistoryDays: userSub.plan.maxHistoryDays,
-    features: (userSub.plan.features as string[]) ?? [],
-    canAccessPremiumSubjects: true,
-    canExportPdf: true,
-  };
-}
-
-/**
- * Get today's usage for a user or session
- */
-export async function getTodayUsage(
-  userId?: string | null,
-  sessionId?: string | null
-): Promise<CurrentUsage> {
-  const today = new Date().toISOString().split("T")[0];
-
-  let usage;
-
-  if (userId) {
-    usage = await db.query.dailyUsage.findFirst({
-      where: and(
-        eq(dailyUsage.userId, userId),
-        sql`DATE(${dailyUsage.usageDate}) = ${today}`
-      ),
-    });
-  } else if (sessionId) {
-    usage = await db.query.dailyUsage.findFirst({
-      where: and(
-        eq(dailyUsage.sessionId, sessionId),
-        sql`DATE(${dailyUsage.usageDate}) = ${today}`
-      ),
-    });
-  }
-
-  return {
-    scanCount: usage?.scanCount ?? 0,
-    messageCount: usage?.messageCount ?? 0,
-    practiceCount: usage?.practiceCount ?? 0,
-  };
-}
-
-/**
- * Check if user can perform a scan
+ * Check scan limit using PostgreSQL function
  */
 export async function checkScanLimit(
   userId?: string | null,
   sessionId?: string | null
 ): Promise<UsageCheck> {
-  const limits = await getPlanLimits(userId, sessionId);
-  const usage = await getTodayUsage(userId, sessionId);
+  const result = await db.execute(sql`
+    SELECT * FROM fn_check_rate_limit(
+      ${userId || null}::UUID,
+      ${sessionId || null}::VARCHAR,
+      'scan'
+    )
+  `);
 
-  // -1 means unlimited
-  if (limits.dailyScanLimit === -1) {
-    return { allowed: true, remaining: -1, limit: -1 };
+  const row = result.rows[0] as {
+    allowed: boolean;
+    remaining: number;
+    limit_value: number;
+    resets_at: Date;
+  };
+
+  let message: string | undefined;
+  if (!row.allowed) {
+    if (!userId) {
+      message = "Daily scan limit reached. Sign in to get more scans or upgrade to Premium for unlimited scans.";
+    } else if (row.limit_value < 100) { // Not premium
+      message = "Daily scan limit reached. Upgrade to Premium for unlimited scans.";
+    } else {
+      message = "Daily scan limit reached. Please try again tomorrow.";
+    }
   }
 
-  const remaining = limits.dailyScanLimit - usage.scanCount;
-  const allowed = remaining > 0;
-
   return {
-    allowed,
-    remaining: Math.max(0, remaining),
-    limit: limits.dailyScanLimit,
-    message: allowed
-      ? undefined
-      : `Daily scan limit reached (${limits.dailyScanLimit}). Upgrade for more scans!`,
+    allowed: row.allowed,
+    remaining: row.remaining,
+    limit: row.limit_value,
+    resetsAt: new Date(row.resets_at),
+    message,
   };
 }
 
 /**
- * Check if user can ask followup questions
+ * Check followup limit using PostgreSQL function
  */
 export async function checkFollowupLimit(
   userId?: string | null,
   sessionId?: string | null
 ): Promise<UsageCheck> {
-  const limits = await getPlanLimits(userId, sessionId);
-  const usage = await getTodayUsage(userId, sessionId);
+  const result = await db.execute(sql`
+    SELECT * FROM fn_check_rate_limit(
+      ${userId || null}::UUID,
+      ${sessionId || null}::VARCHAR,
+      'followup'
+    )
+  `);
 
-  // Premium users (unlimited scans) also get unlimited followups
-  const isUnlimited = limits.dailyScanLimit === null || limits.dailyScanLimit === -1;
+  const row = result.rows[0] as {
+    allowed: boolean;
+    remaining: number;
+    limit_value: number;
+    resets_at: Date;
+  };
 
-  if (isUnlimited) {
-    return { allowed: true, remaining: -1, limit: -1 };
+  let message: string | undefined;
+  if (!row.allowed) {
+    if (!userId) {
+      message = "Daily message limit reached. Sign in for more messages or upgrade to Premium for unlimited.";
+    } else {
+      message = "Daily message limit reached. Upgrade to Premium for unlimited messages.";
+    }
   }
 
-  // Free/guest users get limited followups (e.g., 10 per day)
-  const followupLimit = isUnlimited ? 50 : 3;
-  const remaining = followupLimit - usage.messageCount;
-  const allowed = remaining > 0;
-
   return {
-    allowed,
-    remaining: Math.max(0, remaining),
-    limit: followupLimit,
-    message: allowed
-      ? undefined
-      : `Daily followup limit reached. Upgrade for unlimited questions!`,
+    allowed: row.allowed,
+    remaining: row.remaining,
+    limit: row.limit_value,
+    resetsAt: new Date(row.resets_at),
+    message,
   };
 }
 
 /**
- * Increment usage counter
+ * Get remaining scans using PostgreSQL function
  */
-export async function incrementUsage(
-  type: "scan" | "followup" | "practice",
+export async function getRemainingScans(
   userId?: string | null,
   sessionId?: string | null
-): Promise<void> {
-  const today = new Date().toISOString().split("T")[0];
+): Promise<number> {
+  const result = await db.execute(sql`
+    SELECT fn_get_remaining_scans(
+      ${userId || null}::UUID,
+      ${sessionId || null}::VARCHAR
+    ) as remaining
+  `);
 
-  // Find or create today's usage record
-  let existingUsage;
-
-  if (userId) {
-    existingUsage = await db.query.dailyUsage.findFirst({
-      where: and(
-        eq(dailyUsage.userId, userId),
-        sql`DATE(${dailyUsage.usageDate}) = ${today}`
-      ),
-    });
-  } else if (sessionId) {
-    existingUsage = await db.query.dailyUsage.findFirst({
-      where: and(
-        eq(dailyUsage.sessionId, sessionId),
-        sql`DATE(${dailyUsage.usageDate}) = ${today}`
-      ),
-    });
-  }
-
-  const updateField =
-    type === "scan"
-      ? { scanCount: sql`${dailyUsage.scanCount} + 1` }
-      : type === "followup"
-        ? { messageCount: sql`${dailyUsage.messageCount} + 1` }
-        : { practiceCount: sql`${dailyUsage.practiceCount} + 1` };
-
-  if (existingUsage) {
-    await db
-      .update(dailyUsage)
-      .set({ ...updateField, updatedAt: new Date() })
-      .where(eq(dailyUsage.id, existingUsage.id));
-  } else {
-    await db.insert(dailyUsage).values({
-      ...(userId && { userId }),
-      ...(sessionId && { sessionId }),
-      usageDate: today,
-      scanCount: type === "scan" ? 1 : 0,
-      messageCount: type === "followup" ? 1 : 0,
-      practiceCount: type === "practice" ? 1 : 0,
-    });
-  }
+  return (result.rows[0] as { remaining: number }).remaining;
 }
 
 /**
- * Get full usage status for display
+ * Get usage status from view
  */
 export async function getUsageStatus(
   userId?: string | null,
   sessionId?: string | null
 ) {
-  const limits = await getPlanLimits(userId, sessionId);
-  const usage = await getTodayUsage(userId, sessionId);
+  const identifier = userId || sessionId;
 
-  // Check if unlimited (-1 or null means unlimited)
-  const isUnlimited = limits.dailyScanLimit === null || limits.dailyScanLimit === -1;
+  const result = await db.execute(sql`
+    SELECT *
+    FROM v_daily_usage_stats
+    WHERE identifier = ${identifier}
+    AND usage_date = CURRENT_DATE
+    LIMIT 1
+  `);
+
+  const row = result.rows[0] as {
+    scan_count: number;
+    message_count: number;
+    practice_count: number;
+    daily_limit: number;
+    can_scan: boolean;
+    remaining_scans: number;
+  } | undefined;
+
+  if (!row) {
+    // No usage today, return defaults
+    const defaultLimit = userId ? 10 : 5;
+    return {
+      scans: {
+        used: 0,
+        limit: defaultLimit,
+        remaining: defaultLimit,
+        unlimited: false,
+        canScan: true,
+      },
+      messages: {
+        used: 0,
+        limit: userId ? 10 : 5,
+        remaining: userId ? 10 : 5,
+        unlimited: false,
+      },
+    };
+  }
+
+  const isUnlimited = row.daily_limit === 999999 || row.daily_limit === null;
 
   return {
     scans: {
-      used: usage.scanCount,
-      limit: limits.dailyScanLimit,
-      remaining: isUnlimited
-        ? -1
-        : Math.max(0, (limits.dailyScanLimit ?? 0) - usage.scanCount),
+      used: row.scan_count,
+      limit: isUnlimited ? -1 : row.daily_limit,
+      remaining: isUnlimited ? -1 : row.remaining_scans,
+      unlimited: isUnlimited,
+      canScan: row.can_scan,
+    },
+    messages: {
+      used: row.message_count,
+      limit: isUnlimited ? -1 : 10,
+      remaining: isUnlimited ? -1 : Math.max(0, 10 - row.message_count),
       unlimited: isUnlimited,
     },
-    followups: {
-      used: usage.messageCount,
-      // Followups not limited per plan anymore, use reasonable default
-      limit: isUnlimited ? -1 : 5,
-      remaining: isUnlimited ? -1 : Math.max(0, 10 - usage.messageCount),
-      unlimited: isUnlimited,
-    },
-    practice: {
-      used: usage.practiceCount,
-      // Practice not limited per plan anymore, use reasonable default
-      limit: isUnlimited ? -1 : 5,
-      remaining: isUnlimited ? -1 : Math.max(0, 5 - usage.practiceCount),
-      unlimited: isUnlimited,
-    },
-    limits,
-    // Helper to check features
-    hasFeature: (feature: string) => limits.features.includes(feature),
   };
 }

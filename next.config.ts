@@ -11,6 +11,14 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'pub-223ed165f0bf437896e615c10cddb550.r2.dev',
+      },
+      {
+        protocol: "https",
+        hostname: "*.r2.cloudflarestorage.com",
+      },
     ],
     // 🔑 FIX: Enable SVG support
     dangerouslyAllowSVG: true,
