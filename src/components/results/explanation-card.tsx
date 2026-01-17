@@ -50,7 +50,7 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
         </CardHeader>
         <CardContent>
           <p className="text-[hsl(var(--muted-foreground))] whitespace-pre-wrap">
-            {extractedText}
+            {renderMarkdown(extractedText)}
           </p>
         </CardContent>
       </Card>
