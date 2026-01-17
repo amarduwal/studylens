@@ -76,6 +76,7 @@ export interface ScanBookmarkResult {
   isBookmarked: boolean;
   createdAt: Date;
   bookmarkedAt: Date;
+  pagination?: Pagination
 }
 
 export interface BookmarkResponse {
@@ -161,6 +162,14 @@ export interface LimitError {
   remaining: number;
   limit: number;
   resetsAt: string;
+}
+
+export interface Pagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number
+  hasMore: boolean,
 }
 
 // Language configuration

@@ -13,6 +13,9 @@ interface ScanState {
   limitError: LimitError | null;
   isLoading: boolean;
   hasFetched: boolean;
+  currentPage: number;
+  hasMore: boolean;
+  isLoadingMore: boolean;
 
   // Conversation
   messages: ConversationMessage[];
@@ -43,11 +46,12 @@ interface ScanState {
   getBookmarkedScans: () => ScanResult[];
   clearCurrentScan: () => void;
   reset: () => void;
-  fetchScansFromDB: (sessionId: string) => Promise<void>;
-  fetchBookmarksFromDB: (sessionId: string) => Promise<ScanBookmarkResult[]>;
+  fetchScansFromDB: (sessionId: string, page?: number) => Promise<void>;
+  fetchBookmarksFromDB: (sessionId: string, page?: number) => Promise<ScanBookmarkResult[]>;
+  loadMoreScans: () => Promise<void>;
+  // setCurrentPage: (page: number) => void;
   toggleBookmarkDB: (scanId: string, sessionId?: string) => Promise<BookmarkResponse>;
   getScanById: (scanId: string, sessionId: string) => Promise<ScanResult | null>;
-
 }
 
 export const useScanStore = create<ScanState>()(
@@ -68,6 +72,9 @@ export const useScanStore = create<ScanState>()(
       bookmarkedScans: new Set(),
       isLoading: false,
       hasFetched: false,
+      currentPage: 1,
+      hasMore: false,
+      isLoadingMore: false,
 
       // Actions
       setCurrentImage: (image, file = null) =>
@@ -170,14 +177,19 @@ export const useScanStore = create<ScanState>()(
           isLoadingResponse: false,
         }),
 
-      fetchScansFromDB: async (sessionId: string) => {
+      fetchScansFromDB: async (sessionId: string, page = 1) => {
         set({ isLoading: true });
         try {
-          const res = await fetch(`/api/scans?sessionId=${sessionId}`);
+          const res = await fetch(`/api/scans?sessionId=${sessionId}&page=${page}&pageSize=10`);
           const data = await res.json();
 
           if (data.success && data.data) {
-            set({ scanHistory: data.data, hasFetched: true });
+            set({
+              scanHistory: page === 1 ? data.data : [...get().scanHistory, ...data.data],
+              hasFetched: true,
+              currentPage: data.pagination.page,
+              hasMore: data.pagination.hasMore,
+            });
           }
         } catch (error) {
           console.error("Failed to fetch scans:", error);
@@ -186,10 +198,25 @@ export const useScanStore = create<ScanState>()(
         }
       },
 
-      fetchBookmarksFromDB: async (sessionId: string) => {
+      loadMoreScans: async () => {
+        const { hasMore, isLoadingMore, currentPage, sessionId } = get();
+        if (!hasMore || isLoadingMore) return;
+
+        set({ isLoadingMore: true });
+        await get().fetchScansFromDB(sessionId, currentPage + 1);
+        set({ isLoadingMore: false });
+      },
+
+      fetchBookmarksFromDB: async (sessionId: string, page = 1) => {
         try {
-          const res = await fetch(`/api/bookmarks?sessionId=${sessionId}`);
+          const res = await fetch(`/api/bookmarks?sessionId=${sessionId}&page=${page}&pageSize=10`);
           const data = await res.json();
+          if (data.success && data.data) {
+            set({
+              currentPage: data?.pagination?.page,
+              hasMore: data?.pagination?.hasMore,
+            });
+          }
           return data.success ? data.data || [] : [];
         } catch (error) {
           console.error("Failed to fetch bookmarks:", error);

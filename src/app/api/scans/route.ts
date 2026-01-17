@@ -10,8 +10,12 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const sessionId = searchParams.get("sessionId");
     const bookmarkedOnly = searchParams.get("bookmarked") === "true";
-    const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const page = parseInt(searchParams.get("page") || "1");
+    const pageSize = parseInt(searchParams.get("pageSize") || "10");
+
+    const offset = (page - 1) * pageSize;
+    const limit = pageSize;
+
 
     let whereClause;
     const userId = session?.user?.id;
@@ -21,8 +25,28 @@ export async function GET(request: NextRequest) {
     } else if (sessionId) {
       whereClause = eq(scans.sessionId, sessionId);
     } else {
-      return NextResponse.json({ success: true, data: [] });
+      return NextResponse.json({ success: true, data: [], pagination: { page: 1, pageSize, total: 0, totalPages: 0 } });
     }
+
+    // Get total count
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(scans)
+      .leftJoin(
+        bookmarks,
+        and(
+          eq(scans.id, bookmarks.scanId),
+          userId ? eq(bookmarks.userId, userId) : sql`false`
+        )
+      )
+      .where(
+        bookmarkedOnly
+          ? and(whereClause, sql`${bookmarks.id} IS NOT NULL`)
+          : whereClause
+      );
+
+    const total = Number(countResult.count);
+    const totalPages = Math.ceil(total / pageSize);
 
     // Query with bookmark status
     const results = await db
@@ -64,6 +88,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: formattedResults,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages,
+        hasMore: page < totalPages,
+      },
     });
   } catch (error) {
     console.error("Fetch scans error:", error);

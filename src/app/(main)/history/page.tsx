@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Clock, Bookmark } from 'lucide-react';
+import { Clock, Bookmark, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -22,8 +22,12 @@ export default function HistoryPage() {
     toggleBookmarkDB,
     isBookmarked,
     sessionId,
+    hasMore,
+    currentPage,
   } = useScanStore();
   const { showToast, ToastComponent } = useToast();
+
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     if (!hasFetched) {
@@ -52,6 +56,14 @@ export default function HistoryPage() {
       result.isBookmarked ? 'Added to bookmarks' : 'Removed from bookmarks',
       'success'
     );
+  };
+
+  const loadMore = async () => {
+    if (!hasMore || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    await fetchScansFromDB(sessionId, currentPage + 1); // Use store's currentPage
+    setIsLoadingMore(false);
   };
 
   return (
@@ -213,6 +225,21 @@ export default function HistoryPage() {
                     </Card>
                   </Link>
                 ))}
+
+                {hasMore && (
+                  <div className="text-center py-4">
+                    <Button
+                      onClick={loadMore}
+                      disabled={isLoadingMore}
+                      variant="outline"
+                    >
+                      {isLoadingMore ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
+                      Load More
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : null}
           </div>

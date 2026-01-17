@@ -1,21 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/db";
-import { sql } from "drizzle-orm";
+import { bookmarks, db } from "@/db";
+import { eq, sql } from "drizzle-orm";
 
 // GET bookmarks
 export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     const searchParams = request.nextUrl.searchParams;
-    const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const page = parseInt(searchParams.get("page") || "1");
+    const pageSize = parseInt(searchParams.get("pageSize") || "10");
+
+    const offset = (page - 1) * pageSize;
+    const limit = pageSize;
 
     const userId = session?.user?.id;
 
     if (!userId) {
       return NextResponse.json({ success: true, data: [] });
     }
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookmarks)
+      .where(eq(bookmarks.userId, userId));
+
+    const total = Number(countResult.count);
+    const totalPages = Math.ceil(total / pageSize);
 
     // Use the view for authenticated users
     // Non auth user are not allow to bookmark for now
@@ -48,6 +59,13 @@ export async function GET(request: NextRequest) {
         createdAt: r.scan_date,
         bookmarkedAt: r.bookmarked_at,
       })),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages,
+        hasMore: page < totalPages,
+      },
     }, {
       headers: { "Cache-Control": "private, max-age=10" },
     });

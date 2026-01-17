@@ -4,7 +4,15 @@ import { useScanStore } from '@/stores/scan-store';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Bookmark, Clock, LogIn, NotebookText, Pin, Tag } from 'lucide-react';
+import {
+  Bookmark,
+  Clock,
+  Loader2,
+  LogIn,
+  NotebookText,
+  Pin,
+  Tag,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
@@ -19,7 +27,13 @@ import { useRouter } from 'next/navigation';
 export default function SavedPage() {
   const { status } = useSession();
   const router = useRouter();
-  const { fetchBookmarksFromDB, toggleBookmarkDB, sessionId } = useScanStore();
+  const {
+    fetchBookmarksFromDB,
+    toggleBookmarkDB,
+    hasMore,
+    currentPage,
+    sessionId,
+  } = useScanStore();
   const [bookmarkedScans, setBookmarkedScans] = useState<ScanBookmarkResult[]>(
     []
   );
@@ -28,6 +42,8 @@ export default function SavedPage() {
   const [editingBookmark, setEditingBookmark] =
     useState<ScanBookmarkResult | null>(null);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     async function loadBookmarks() {
@@ -70,6 +86,14 @@ export default function SavedPage() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [bookmarkedScans]);
+
+  const loadMore = async () => {
+    if (!hasMore || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    await fetchBookmarksFromDB(sessionId, currentPage + 1);
+    setIsLoadingMore(false);
+  };
 
   if (isLoading) {
     return (
@@ -312,6 +336,21 @@ export default function SavedPage() {
                     </CardContent>
                   </Card>
                 ))}
+
+                {hasMore && (
+                  <div className="text-center py-4">
+                    <Button
+                      onClick={loadMore}
+                      disabled={isLoadingMore}
+                      variant="outline"
+                    >
+                      {isLoadingMore ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
+                      Load More
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
