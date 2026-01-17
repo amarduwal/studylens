@@ -95,17 +95,6 @@ export default function SavedPage() {
     setIsLoadingMore(false);
   };
 
-  if (isLoading) {
-    return (
-      <div className="text-center py-12">
-        <div className="animate-spin h-8 w-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full mx-auto mb-4" />
-        <p className="text-[hsl(var(--muted-foreground))]">
-          Loading bookmarks...
-        </p>
-      </div>
-    );
-  }
-
   if (status === 'unauthenticated') {
     return (
       <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
@@ -177,8 +166,17 @@ export default function SavedPage() {
               </p>
             </div>
 
+            {isLoading && (
+              <div className="text-center py-12">
+                <div className="animate-spin h-8 w-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-[hsl(var(--muted-foreground))]">
+                  Loading bookmarks...
+                </p>
+              </div>
+            )}
+
             {/* Bookmarked List */}
-            {bookmarkedScans.length === 0 ? (
+            {!isLoading && bookmarkedScans.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🔖</div>
                 <h3 className="text-lg font-semibold mb-2">No bookmarks yet</h3>

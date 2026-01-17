@@ -30,6 +30,9 @@ interface ScanState {
   scanHistory: ScanResult[];
   // bookmarkedScans: Set<string>; // Store scan IDs
 
+  // Recent Scan History
+  recentScans: [];
+
   // Actions
   setCurrentImage: (image: string | null, file?: File | null) => void;
   setCurrentResult: (result: ScanResult | null) => void;
@@ -42,6 +45,7 @@ interface ScanState {
   clearMessages: () => void;
   setIsLoadingResponse: (isLoading: boolean) => void;
   addToHistory: (result: ScanResult) => void;
+  fetchRecentScans: (sessionId: string) => Promise<void>;
   isBookmarked: (scanId: string) => boolean;
   getBookmarkedScans: () => ScanResult[];
   clearCurrentScan: () => void;
@@ -69,6 +73,7 @@ export const useScanStore = create<ScanState>()(
       selectedLanguage: "en",
       sessionId: uuidv4(),
       scanHistory: [],
+      recentScans: [],
       bookmarkedScans: new Set(),
       isLoading: false,
       hasFetched: false,
@@ -146,6 +151,21 @@ export const useScanStore = create<ScanState>()(
           scanHistory: [result, ...state.scanHistory].slice(0, 50),
         })),
 
+      fetchRecentScans: async (sessionId: string) => {
+        set({ isLoading: true });
+        try {
+          const res = await fetch(`/api/scans/recent?sessionId=${sessionId}&limit=5`); // Change how much recent scan to show
+          const data = await res.json();
+
+          if (data.success && data.data) {
+            set({ recentScans: data.data });
+          }
+        } catch (error) {
+          console.error("Failed to fetch recent scans:", error);
+        } finally {
+          set({ isLoading: false });
+        }
+      },
 
       isBookmarked: (scanId) => {
         const scan = get().scanHistory.find(s => s.id === scanId);

@@ -16,9 +16,11 @@ export default function HistoryPage() {
   const { data: session } = useSession();
   const {
     scanHistory,
+    recentScans,
     isLoading,
     hasFetched,
     fetchScansFromDB,
+    fetchRecentScans,
     toggleBookmarkDB,
     isBookmarked,
     sessionId,
@@ -26,19 +28,27 @@ export default function HistoryPage() {
     currentPage,
   } = useScanStore();
   const { showToast, ToastComponent } = useToast();
-
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [filter, setFilter] = useState<'recent' | 'all' | 'bookmarked'>(
+    'recent'
+  );
 
   useEffect(() => {
-    if (!hasFetched) {
+    if (filter) {
+      fetchRecentScans(sessionId);
+    }
+  }, [sessionId, filter, fetchRecentScans]);
+
+  useEffect(() => {
+    if (!hasFetched && filter !== 'recent') {
       fetchScansFromDB(sessionId);
     }
-  }, [hasFetched, sessionId, fetchScansFromDB]);
-
-  const [filter, setFilter] = useState<'all' | 'bookmarked'>('all');
+  }, [hasFetched, filter, sessionId, fetchScansFromDB]);
 
   const filteredScans =
-    filter === 'bookmarked'
+    filter === 'recent'
+      ? recentScans
+      : filter === 'bookmarked'
       ? scanHistory.filter((scan) => isBookmarked(scan.id))
       : scanHistory;
 
@@ -82,6 +92,17 @@ export default function HistoryPage() {
             {/* Filter Tabs */}
             <div className="flex gap-2 border-b border-[hsl(var(--border))]">
               <button
+                onClick={() => setFilter('recent')}
+                className={cn(
+                  'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
+                  filter === 'recent'
+                    ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
+                    : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+                )}
+              >
+                Recent Scans
+              </button>
+              <button
                 onClick={() => setFilter('all')}
                 className={cn(
                   'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
@@ -90,7 +111,7 @@ export default function HistoryPage() {
                     : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
                 )}
               >
-                All ({scanHistory.length})
+                All
               </button>
               <button
                 onClick={() => setFilter('bookmarked')}
@@ -101,8 +122,7 @@ export default function HistoryPage() {
                     : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
                 )}
               >
-                Bookmarked (
-                {scanHistory.filter((s) => isBookmarked(s.id)).length})
+                Bookmarked
               </button>
             </div>
 
