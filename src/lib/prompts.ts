@@ -32,7 +32,7 @@ export function getAnalysisPrompt(language: SupportedLanguage): string {
       "subject": "The academic subject (e.g., Mathematics, Physics, Chemistry, Biology, History, etc.)",
       "topic": "The specific topic within the subject",
       "difficulty": "easy" | "medium" | "hard",
-      "extractedText": "The exact text/problem extracted from the image",
+      "extractedText": "The exact text or problem extracted from the image, if no readable text is present, provide a brief description of what the image depicts",
       "extractedLatex": "LaTeX notation if mathematical content is present (optional, null if not applicable)",
       "detectedLanguage": "The primary language detected in the image content",
       "explanation": {
