@@ -34,9 +34,7 @@ export default function HistoryPage() {
   const recentScans = getRecentScans(); // Get from local state
   const { showToast, ToastComponent } = useToast();
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [filter, setFilter] = useState<
-    'recent' | 'all' | 'bookmarked' | 'search'
-  >('recent');
+  const [filter, setFilter] = useState<'recent' | 'all' | 'search'>('recent');
 
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -69,8 +67,6 @@ export default function HistoryPage() {
       ? searchResults
       : filter === 'recent'
       ? recentScans
-      : filter === 'bookmarked'
-      ? scanHistory.filter((scan) => isBookmarked(scan.id))
       : scanHistory;
 
   const handleBookmark = async (scanId: string) => {
@@ -177,17 +173,6 @@ export default function HistoryPage() {
               >
                 All
               </button>
-              <button
-                onClick={() => setFilter('bookmarked')}
-                className={cn(
-                  'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
-                  filter === 'bookmarked'
-                    ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
-                    : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
-                )}
-              >
-                Bookmarked
-              </button>
             </div>
 
             {isLoading && (
@@ -203,24 +188,16 @@ export default function HistoryPage() {
             {!isLoading && filteredScans.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">
-                  {filter === 'search'
-                    ? '🔍'
-                    : filter === 'bookmarked'
-                    ? '🔖'
-                    : '📚'}
+                  {filter === 'search' ? '🔍' : '📚'}
                 </div>
                 <h3 className="text-lg font-semibold mb-2">
                   {filter === 'search'
                     ? `No results for "${searchQuery}"`
-                    : filter === 'bookmarked'
-                    ? 'No bookmarks yet'
                     : 'No scans yet'}
                 </h3>
                 <p className="text-[hsl(var(--muted-foreground))] mb-6">
                   {filter === 'search'
                     ? 'Try different keywords'
-                    : filter === 'bookmarked'
-                    ? 'Bookmark scans to find them easily later'
                     : 'Start scanning to build your learning history'}
                 </p>
                 {filter === 'search' && (
@@ -341,7 +318,7 @@ export default function HistoryPage() {
                   </Link>
                 ))}
 
-                {!isLoading && hasMore && (
+                {!isLoading && filter !== 'recent' && hasMore && (
                   <div className="text-center py-4">
                     <Button
                       onClick={loadMore}
