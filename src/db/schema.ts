@@ -198,6 +198,17 @@ export const users = pgTable("users", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
+// ============ PASSWORD RESET TOKENS ============
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ============ EMAIL VERIFICATION CODES ============
 
 export const emailVerificationCodes = pgTable("email_verification_codes", {
@@ -687,7 +698,8 @@ export const topicsRelations = relations(topics, ({ one, many }) => ({
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({
-  verificationCodes: many(emailVerificationCodes),
+  resetTokens: one(passwordResetTokens),
+  passwordResetTokens: many(passwordResetTokens),
   preferredLanguage: one(languages, {
     fields: [users.preferredLanguageId],
     references: [languages.id],
@@ -711,6 +723,13 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   conversations: many(conversations),
   bookmarks: many(bookmarks),
   payments: many(payments),
+}));
+
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetTokens.userId],
+    references: [users.id],
+  }),
 }));
 
 export const emailVerificationCodesRelations = relations(emailVerificationCodes, ({ one }) => ({
@@ -844,6 +863,9 @@ export const dailyUsageRelations = relations(dailyUsage, ({ one }) => ({
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type NewPasswordResetToken = typeof passwordResetTokens.$inferSelect;
 
 export type EmailVerificationCode = typeof emailVerificationCodes.$inferSelect;
 export type NewEmailVerificationCode = typeof emailVerificationCodes.$inferSelect;

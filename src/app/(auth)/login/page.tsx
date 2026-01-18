@@ -64,6 +64,7 @@ export default function LoginPage() {
       }
     } catch (err) {
       setError('Something went wrong. Please try again.');
+      console.log('Something went wrong. Please try again.', err);
     } finally {
       setIsLoading(false);
     }
@@ -75,6 +76,7 @@ export default function LoginPage() {
       await signIn('google', { callbackUrl });
     } catch (err) {
       setError('Failed to sign in with Google');
+      console.log('Failed to sign in with Google', err);
       setIsGoogleLoading(false);
     }
   };
@@ -185,9 +187,15 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-1.5 block">
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium">Password</label>
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm text-[hsl(var(--primary))] hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[hsl(var(--muted-foreground))]" />
                   <input
@@ -238,13 +246,13 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Back to Home */}
+        {/* Back to Login */}
         <p className="text-center">
           <Link
-            href="/"
+            href="/login"
             className="text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
           >
-            ← Back to home
+            ← Back to Login
           </Link>
         </p>
       </div>

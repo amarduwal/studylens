@@ -77,3 +77,34 @@ export async function sendWelcomeEmail(
     return false;
   }
 }
+
+export async function sendForgotPasswordEmail(
+  email: string,
+  name: string,
+  resetUrl: string
+): Promise<boolean> {
+  try {
+    await transporter.sendMail({
+      to: email,
+      subject: "Reset Your Password - StudyLens",
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>Reset Your Password</h2>
+          <p>Hi ${name || "there"},</p>
+          <p>You requested to reset your password. Click the button below to proceed:</p>
+          <a href="${resetUrl}" style="display: inline-block; background: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin: 16px 0;">
+            Reset Password
+          </a>
+          <p>This link expires in 1 hour.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;" />
+          <p style="color: #6b7280; font-size: 14px;">StudyLens Team</p>
+        </div>
+      `,
+    });
+    return true;
+  } catch (error) {
+    console.log("Failed to send password reset email:", error);
+    return false;
+  }
+}
