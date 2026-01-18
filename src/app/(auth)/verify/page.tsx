@@ -12,6 +12,7 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import { Loader2, CheckCircle, Mail } from 'lucide-react';
+import Image from 'next/image';
 
 export default function VerifyPage() {
   const router = useRouter();
@@ -28,6 +29,12 @@ export default function VerifyPage() {
   const [countdown, setCountdown] = useState(0);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    if (!userId) {
+      router.push('/login');
+    }
+  }, [userId, router]);
 
   useEffect(() => {
     if (countdown > 0) {
@@ -68,6 +75,11 @@ export default function VerifyPage() {
   };
 
   const handleVerify = async () => {
+    if (!userId) {
+      setError("You can play but we can't verify you!");
+      return;
+    }
+
     const fullCode = code.join('');
     if (fullCode.length !== 6) {
       setError('Please enter the complete 6-digit code');
@@ -148,9 +160,23 @@ export default function VerifyPage() {
       <div className="w-full max-w-md space-y-8">
         {/* Logo */}
         <div className="text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="text-4xl">📚</span>
-            <span className="text-2xl font-bold">StudyLens</span>
+          <Link
+            href="/"
+            className="flex items-center justify-center gap-2 mr-auto"
+          >
+            <div className="relative h-8 w-8 sm:h-10 sm:w-10">
+              <Image
+                src="/icon-192.png"
+                alt="StudyLens"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+
+            <span className="text-gradient text-2xl font-bold hidden sm:inline">
+              StudyLens
+            </span>
           </Link>
         </div>
 

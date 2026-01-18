@@ -81,6 +81,7 @@ export default function RegisterPage() {
       // }
     } catch (err) {
       setError('Something went wrong. Please try again.');
+      console.log('Something went wrong. Please try again.', err);
     } finally {
       setIsLoading(false);
     }
