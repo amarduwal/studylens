@@ -11,6 +11,7 @@ import { useScanStore } from '@/stores/scan-store';
 import { useToast } from '@/components/ui/toast';
 import { getImageUrl } from '@/lib/image-utils';
 import { useSession } from 'next-auth/react';
+import { formatDate } from '@/components/common/helper';
 
 export default function HistoryPage() {
   const { data: session } = useSession();
@@ -317,7 +318,7 @@ export default function HistoryPage() {
                             <div className="flex items-center gap-4 text-xs text-[hsl(var(--muted-foreground))]">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {new Date(scan.createdAt).toLocaleDateString()}
+                                {formatDate(scan.createdAt)}
                               </span>
                               <span
                                 className={cn(

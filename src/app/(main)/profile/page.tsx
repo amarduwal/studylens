@@ -6,7 +6,7 @@ import { User, LogIn, Loader2 } from 'lucide-react';
 import { useSession, signIn } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
-import { formatHour, StatItem } from '@/components/common/helper';
+import { formatDate, formatHour, StatItem } from '@/components/common/helper';
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
@@ -273,10 +273,7 @@ export default function ProfilePage() {
                         <span className="text-sm">Member Since</span>
                       </div>
                       <span className="font-medium">
-                        {new Date(memberSince).toLocaleDateString('en-US', {
-                          month: 'short',
-                          year: 'numeric',
-                        })}
+                        {formatDate(memberSince)}
                       </span>
                     </div>
                   )}

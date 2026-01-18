@@ -23,6 +23,7 @@ import { ScanBookmarkResult } from '@/types';
 import { getImageUrl } from '@/lib/image-utils';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { formatDate } from '@/components/common/helper';
 
 export default function SavedPage() {
   const { status } = useSession();
@@ -325,7 +326,7 @@ export default function SavedPage() {
                             <div className="flex justify-end gap-4 text-xs text-[hsl(var(--muted-foreground))]">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {new Date(scan.createdAt).toLocaleDateString()}
+                                {formatDate(scan.createdAt)}
                               </span>
                             </div>
                           </div>
