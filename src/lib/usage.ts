@@ -116,13 +116,30 @@ export async function getUsageStatus(
   sessionId?: string | null
 ) {
   const identifier = userId || sessionId;
+  const defaultPlanSlug = userId ? 'free' : 'guest';
 
   const result = await db.execute(sql`
-    SELECT *
-    FROM v_daily_usage_stats
-    WHERE identifier = ${identifier}
-    AND usage_date = CURRENT_DATE
-    LIMIT 1
+    WITH usage_stats AS (
+      SELECT *
+      FROM v_daily_usage_stats
+      WHERE identifier = ${identifier}
+      AND usage_date = CURRENT_DATE
+      LIMIT 1
+    ),
+    default_plan AS (
+      SELECT daily_scan_limit
+      FROM pricing_plans
+      WHERE slug = ${defaultPlanSlug}
+      LIMIT 1
+    )
+    SELECT
+      COALESCE(us.scan_count, 0) AS scan_count,
+      COALESCE(us.message_count, 0) AS message_count,
+      COALESCE(us.daily_limit, dp.daily_scan_limit) AS daily_limit,
+      COALESCE(us.can_scan, true) AS can_scan,
+      COALESCE(us.remaining_scans, dp.daily_scan_limit) AS remaining_scans
+    FROM default_plan dp
+    LEFT JOIN usage_stats us ON true
   `);
 
   const row = result.rows[0] as {
@@ -132,27 +149,7 @@ export async function getUsageStatus(
     daily_limit: number;
     can_scan: boolean;
     remaining_scans: number;
-  } | undefined;
-
-  if (!row) {
-    // No usage today, return defaults
-    const defaultLimit = userId ? 10 : 5;
-    return {
-      scans: {
-        used: 0,
-        limit: defaultLimit,
-        remaining: defaultLimit,
-        unlimited: false,
-        canScan: true,
-      },
-      messages: {
-        used: 0,
-        limit: userId ? 10 : 5,
-        remaining: userId ? 10 : 5,
-        unlimited: false,
-      },
-    };
-  }
+  };
 
   const isUnlimited = row.daily_limit === 999999 || row.daily_limit === null;
 
@@ -166,9 +163,70 @@ export async function getUsageStatus(
     },
     messages: {
       used: row.message_count,
-      limit: isUnlimited ? -1 : 10,
-      remaining: isUnlimited ? -1 : Math.max(0, 10 - row.message_count),
+      limit: isUnlimited ? -1 : row.daily_limit,
+      remaining: isUnlimited ? -1 : Math.max(0, row.daily_limit - row.message_count),
       unlimited: isUnlimited,
     },
   };
 }
+// export async function getUsageStatus(
+//   userId?: string | null,
+//   sessionId?: string | null
+// ) {
+//   const identifier = userId || sessionId;
+
+//   const result = await db.execute(sql`
+//     SELECT *
+//     FROM v_daily_usage_stats
+//     WHERE identifier = ${identifier}
+//     AND usage_date = CURRENT_DATE
+//     LIMIT 1
+//   `);
+
+//   const row = result.rows[0] as {
+//     scan_count: number;
+//     message_count: number;
+//     practice_count: number;
+//     daily_limit: number;
+//     can_scan: boolean;
+//     remaining_scans: number;
+//   } | undefined;
+
+//   if (!row) {
+//     // No usage today, return defaults
+//     const defaultLimit = userId ? 10 : 5;
+//     return {
+//       scans: {
+//         used: 0,
+//         limit: defaultLimit,
+//         remaining: defaultLimit,
+//         unlimited: false,
+//         canScan: true,
+//       },
+//       messages: {
+//         used: 0,
+//         limit: userId ? 10 : 5,
+//         remaining: userId ? 10 : 5,
+//         unlimited: false,
+//       },
+//     };
+//   }
+
+//   const isUnlimited = row.daily_limit === 999999 || row.daily_limit === null;
+
+//   return {
+//     scans: {
+//       used: row.scan_count,
+//       limit: isUnlimited ? -1 : row.daily_limit,
+//       remaining: isUnlimited ? -1 : row.remaining_scans,
+//       unlimited: isUnlimited,
+//       canScan: row.can_scan,
+//     },
+//     messages: {
+//       used: row.message_count,
+//       limit: isUnlimited ? -1 : 10,
+//       remaining: isUnlimited ? -1 : Math.max(0, 10 - row.message_count),
+//       unlimited: isUnlimited,
+//     },
+//   };
+// }
