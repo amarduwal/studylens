@@ -33,6 +33,10 @@ interface ScanState {
   // Recent Scan History
   recentScans: [];
 
+  // Scan Search
+  searchResults: ScanResult[];
+  searchQuery: string;
+
   // Actions
   setCurrentImage: (image: string | null, file?: File | null) => void;
   setCurrentResult: (result: ScanResult | null) => void;
@@ -56,6 +60,8 @@ interface ScanState {
   // setCurrentPage: (page: number) => void;
   toggleBookmarkDB: (scanId: string, sessionId?: string) => Promise<BookmarkResponse>;
   getScanById: (scanId: string, sessionId: string) => Promise<ScanResult | null>;
+  searchScans: (query: string, sessionId: string) => Promise<ScanBookmarkResult[]>;
+  clearSearch: () => void;
 }
 
 export const useScanStore = create<ScanState>()(
@@ -80,6 +86,8 @@ export const useScanStore = create<ScanState>()(
       currentPage: 1,
       hasMore: false,
       isLoadingMore: false,
+      searchResults: [],
+      searchQuery: '',
 
       // Actions
       setCurrentImage: (image, file = null) =>
@@ -176,6 +184,33 @@ export const useScanStore = create<ScanState>()(
         return get().scanHistory.filter((scan) => scan.isBookmarked);
       },
 
+      searchScans: async (query: string, sessionId: string) => {
+        if (!query.trim()) {
+          set({ searchResults: [], searchQuery: '' });
+          return;
+        }
+
+        set({ isLoading: true, searchQuery: query });
+        try {
+          const res = await fetch(`/api/scans/search?q=${encodeURIComponent(query)}&sessionId=${sessionId}`);
+          const data = await res.json();
+
+          if (data.success && data.data) {
+            set({
+              searchResults: data.data,
+              currentPage: data?.pagination?.page,
+              hasMore: data?.pagination?.hasMore,
+            });
+          }
+          return data.success ? data.data || [] : [];
+        } catch (error) {
+          console.error("Failed to search scans:", error);
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      clearSearch: () => set({ searchResults: [], searchQuery: '' }),
 
       clearCurrentScan: () =>
         set({

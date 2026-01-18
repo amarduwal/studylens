@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Clock, Bookmark, Loader2 } from 'lucide-react';
+import { Clock, Bookmark, Loader2, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -26,12 +26,36 @@ export default function HistoryPage() {
     sessionId,
     hasMore,
     currentPage,
+    searchScans,
+    clearSearch,
+    searchResults,
+    searchQuery,
   } = useScanStore();
   const { showToast, ToastComponent } = useToast();
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [filter, setFilter] = useState<'recent' | 'all' | 'bookmarked'>(
-    'recent'
-  );
+  const [filter, setFilter] = useState<
+    'recent' | 'all' | 'bookmarked' | 'search'
+  >('recent');
+
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearchQuery.trim()) {
+        setIsSearching(true);
+        setFilter('search');
+        searchScans(localSearchQuery, sessionId).finally(() =>
+          setIsSearching(false)
+        );
+      } else {
+        clearSearch();
+        if (filter === 'search') setFilter('recent');
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [localSearchQuery, sessionId, searchScans, clearSearch, filter]);
 
   useEffect(() => {
     if (filter) {
@@ -46,7 +70,9 @@ export default function HistoryPage() {
   }, [hasFetched, filter, sessionId, fetchScansFromDB]);
 
   const filteredScans =
-    filter === 'recent'
+    filter === 'search'
+      ? searchResults
+      : filter === 'recent'
       ? recentScans
       : filter === 'bookmarked'
       ? scanHistory.filter((scan) => isBookmarked(scan.id))
@@ -76,6 +102,12 @@ export default function HistoryPage() {
     setIsLoadingMore(false);
   };
 
+  const handleClearSearch = () => {
+    setLocalSearchQuery('');
+    clearSearch();
+    setFilter('recent');
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
       <main className="flex-1 overflow-y-auto pb-20 md:pb-24">
@@ -89,8 +121,45 @@ export default function HistoryPage() {
               </p>
             </div>
 
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+              <input
+                type="text"
+                placeholder="Search your scans..."
+                value={localSearchQuery}
+                onChange={(e) => setLocalSearchQuery(e.target.value)}
+                className="w-full h-10 pl-10 pr-10 rounded-xl border border-[hsl(var(--input))] transition-shadow"
+              />
+              {localSearchQuery && (
+                <button
+                  onClick={handleClearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
             {/* Filter Tabs */}
             <div className="flex gap-2 border-b border-[hsl(var(--border))]">
+              {/* Search Results Tab - Only visible when searching */}
+              {searchQuery && (
+                <button
+                  onClick={() => setFilter('search')}
+                  className={cn(
+                    'px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
+                    filter === 'search'
+                      ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
+                      : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+                  )}
+                >
+                  Search Results
+                  <span className="text-xs bg-[hsl(var(--muted))] px-1.5 py-0.5 rounded-full">
+                    {isSearching ? '...' : searchResults.length}
+                  </span>
+                </button>
+              )}
               <button
                 onClick={() => setFilter('recent')}
                 className={cn(
@@ -139,18 +208,31 @@ export default function HistoryPage() {
             {!isLoading && filteredScans.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">
-                  {filter === 'bookmarked' ? '🔖' : '📚'}
+                  {filter === 'search'
+                    ? '🔍'
+                    : filter === 'bookmarked'
+                    ? '🔖'
+                    : '📚'}
                 </div>
                 <h3 className="text-lg font-semibold mb-2">
-                  {filter === 'bookmarked'
+                  {filter === 'search'
+                    ? `No results for "${searchQuery}"`
+                    : filter === 'bookmarked'
                     ? 'No bookmarks yet'
                     : 'No scans yet'}
                 </h3>
                 <p className="text-[hsl(var(--muted-foreground))] mb-6">
-                  {filter === 'bookmarked'
+                  {filter === 'search'
+                    ? 'Try different keywords'
+                    : filter === 'bookmarked'
                     ? 'Bookmark scans to find them easily later'
                     : 'Start scanning to build your learning history'}
                 </p>
+                {filter === 'search' && (
+                  <Button variant="outline" onClick={handleClearSearch}>
+                    Clear Search
+                  </Button>
+                )}
                 {filter === 'all' && (
                   <Link href="/">
                     <Button>Scan Something</Button>
@@ -159,91 +241,113 @@ export default function HistoryPage() {
               </div>
             ) : !isLoading ? (
               <div>
+                {searchQuery && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                        {isSearching
+                          ? 'Searching...'
+                          : `${searchResults.length} results for "${searchQuery}"`}
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleClearSearch}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {filteredScans.map((scan) => (
-                  <Link
-                    key={scan.id}
-                    href={`/results/${scan.id}`}
-                    className="block mb-4 last:mb-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                      <CardContent className="p-4">
-                        <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
-                          {/* Image thumbnail */}
-                          {scan.imageUrl && (
-                            <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-[hsl(var(--muted))] shrink-0">
-                              <Image
-                                src={
-                                  getImageUrl(scan.imageUrl) ||
-                                  '/Screenshot-1.png'
-                                }
-                                alt="Scan thumbnail"
-                                fill
-                                className="object-cover"
-                                unoptimized
-                              />
-                            </div>
-                          )}
-
-                          {/* Content */}
-                          <div className="flex-1 min-w-0 w-full">
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <div className="flex-1">
-                                <h3 className="font-semibold line-clamp-1">
-                                  {scan.topic}
-                                </h3>
-                                <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                                  {scan.subject}
-                                </p>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="shrink-0 -mt-1 -mr-2"
-                                onClick={(e) => {
-                                  handleBookmark(scan.id);
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                }}
-                              >
-                                <Bookmark
-                                  className={cn(
-                                    'h-4 w-4',
-                                    isBookmarked(scan.id) &&
-                                      'fill-[hsl(var(--primary))] text-[hsl(var(--primary))]'
-                                  )}
+                  <>
+                    <Link
+                      key={scan.id}
+                      href={`/results/${scan.id}`}
+                      className="block mb-4 last:mb-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                        <CardContent className="p-4">
+                          <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
+                            {/* Image thumbnail */}
+                            {scan.imageUrl && (
+                              <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-[hsl(var(--muted))] shrink-0">
+                                <Image
+                                  src={
+                                    getImageUrl(scan.imageUrl) ||
+                                    '/Screenshot-1.png'
+                                  }
+                                  alt="Scan thumbnail"
+                                  fill
+                                  className="object-cover"
+                                  unoptimized
                                 />
-                              </Button>
-                            </div>
+                              </div>
+                            )}
 
-                            <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-2 mb-2">
-                              {scan.extractedText}
-                            </p>
+                            {/* Content */}
+                            <div className="flex-1 min-w-0 w-full">
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <div className="flex-1">
+                                  <h3 className="font-semibold line-clamp-1">
+                                    {scan.topic}
+                                  </h3>
+                                  <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                                    {scan.subject}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="shrink-0 -mt-1 -mr-2"
+                                  onClick={(e) => {
+                                    handleBookmark(scan.id);
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                  }}
+                                >
+                                  <Bookmark
+                                    className={cn(
+                                      'h-4 w-4',
+                                      isBookmarked(scan.id) &&
+                                        'fill-[hsl(var(--primary))] text-[hsl(var(--primary))]'
+                                    )}
+                                  />
+                                </Button>
+                              </div>
 
-                            <div className="flex items-center gap-4 text-xs text-[hsl(var(--muted-foreground))]">
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {new Date(scan.createdAt).toLocaleDateString()}
-                              </span>
-                              <span
-                                className={cn(
-                                  'px-2 py-0.5 rounded-full',
-                                  scan.difficulty === 'easy' &&
-                                    'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-                                  scan.difficulty === 'medium' &&
-                                    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
-                                  scan.difficulty === 'hard' &&
-                                    'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                                )}
-                              >
-                                {scan.difficulty}
-                              </span>
+                              <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-2 mb-2">
+                                {scan.extractedText}
+                              </p>
+
+                              <div className="flex items-center gap-4 text-xs text-[hsl(var(--muted-foreground))]">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {new Date(
+                                    scan.createdAt
+                                  ).toLocaleDateString()}
+                                </span>
+                                <span
+                                  className={cn(
+                                    'px-2 py-0.5 rounded-full',
+                                    scan.difficulty === 'easy' &&
+                                      'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+                                    scan.difficulty === 'medium' &&
+                                      'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+                                    scan.difficulty === 'hard' &&
+                                      'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                                  )}
+                                >
+                                  {scan.difficulty}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  </>
                 ))}
 
                 {hasMore && (
