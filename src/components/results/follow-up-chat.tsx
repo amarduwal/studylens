@@ -217,7 +217,7 @@ export function FollowUpChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask a question..."
-            className="flex-1 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+            className="flex-1 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-4 py-2 text-sm focus:outline-none"
             disabled={isLoadingResponse}
           />
           <Button

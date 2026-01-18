@@ -179,7 +179,7 @@ export default function LoginPage() {
                     onChange={handleChange}
                     placeholder="you@example.com"
                     required
-                    className="w-full h-12 pl-10 pr-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+                    className="w-full h-12 pl-10 pr-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none"
                   />
                 </div>
               </div>
@@ -197,7 +197,7 @@ export default function LoginPage() {
                     onChange={handleChange}
                     placeholder="••••••••"
                     required
-                    className="w-full h-12 pl-10 pr-12 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+                    className="w-full h-12 pl-10 pr-12 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none"
                   />
                   <button
                     type="button"

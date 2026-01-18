@@ -195,7 +195,7 @@ export default function VerifyPage() {
                   value={digit}
                   onChange={(e) => handleChange(index, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(index, e)}
-                  className="w-12 h-14 text-center text-2xl font-bold rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+                  className="w-12 h-14 text-center text-2xl font-bold rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none"
                 />
               ))}
             </div>

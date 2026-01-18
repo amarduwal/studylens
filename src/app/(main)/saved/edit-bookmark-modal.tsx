@@ -97,7 +97,7 @@ export function EditBookmarkModal({
                 type="number"
                 value={sortOrder || 0}
                 onChange={(e) => setSortOrder(Number(e.target.value))}
-                className="w-full h-11 px-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] transition-shadow"
+                className="w-full h-11 px-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none"
               />
             </div>
 
@@ -112,7 +112,7 @@ export function EditBookmarkModal({
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
                 placeholder="algebra, equations, calculus"
-                className="w-full h-11 px-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] transition-shadow"
+                className="w-full h-11 px-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none"
               />
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1.5">
                 Separate tags with commas
@@ -130,7 +130,7 @@ export function EditBookmarkModal({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Add your notes here..."
                 rows={3}
-                className="w-full px-4 py-3 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] transition-shadow resize-none"
+                className="w-full px-4 py-3 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none resize-none"
               />
             </div>
 
