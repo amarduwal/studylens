@@ -31,7 +31,7 @@ interface ScanState {
   // bookmarkedScans: Set<string>; // Store scan IDs
 
   // Recent Scan History
-  recentScans: [];
+  // recentScans: [];
 
   // Scan Search
   searchResults: ScanResult[];
@@ -49,7 +49,8 @@ interface ScanState {
   clearMessages: () => void;
   setIsLoadingResponse: (isLoading: boolean) => void;
   addToHistory: (result: ScanResult) => void;
-  fetchRecentScans: (sessionId: string) => Promise<void>;
+  // fetchRecentScans: (sessionId: string) => Promise<void>;
+  getRecentScans: () => ScanResult[];
   isBookmarked: (scanId: string) => boolean;
   getBookmarkedScans: () => ScanResult[];
   clearCurrentScan: () => void;
@@ -159,20 +160,24 @@ export const useScanStore = create<ScanState>()(
           scanHistory: [result, ...state.scanHistory].slice(0, 50),
         })),
 
-      fetchRecentScans: async (sessionId: string) => {
-        set({ isLoading: true });
-        try {
-          const res = await fetch(`/api/scans/recent?sessionId=${sessionId}&limit=5`); // Change how much recent scan to show
-          const data = await res.json();
+      // fetchRecentScans: async (sessionId: string) => {
+      //   set({ isLoading: true });
+      //   try {
+      //     const res = await fetch(`/api/scans/recent?sessionId=${sessionId}&limit=5`); // Change how much recent scan to show
+      //     const data = await res.json();
 
-          if (data.success && data.data) {
-            set({ recentScans: data.data });
-          }
-        } catch (error) {
-          console.error("Failed to fetch recent scans:", error);
-        } finally {
-          set({ isLoading: false });
-        }
+      //     if (data.success && data.data) {
+      //       set({ recentScans: data.data });
+      //     }
+      //   } catch (error) {
+      //     console.error("Failed to fetch recent scans:", error);
+      //   } finally {
+      //     set({ isLoading: false });
+      //   }
+      // },
+
+      getRecentScans: () => {
+        return get().scanHistory.slice(0, 5); // Get first 5 from local history
       },
 
       isBookmarked: (scanId) => {

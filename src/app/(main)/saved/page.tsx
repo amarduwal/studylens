@@ -335,7 +335,7 @@ export default function SavedPage() {
                   </Card>
                 ))}
 
-                {hasMore && (
+                {!isLoading && hasMore && (
                   <div className="text-center py-4">
                     <Button
                       onClick={loadMore}
