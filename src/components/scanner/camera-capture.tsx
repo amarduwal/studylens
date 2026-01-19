@@ -1,7 +1,18 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { FlipHorizontal, X } from 'lucide-react';
+import {
+  FlipHorizontal,
+  X,
+  ZoomIn,
+  ZoomOut,
+  Sun,
+  Grid3X3,
+  Flashlight,
+  Focus,
+  RotateCcw,
+  Check,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -10,28 +21,62 @@ interface CameraCaptureProps {
   onClose: () => void;
 }
 
+interface CropArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cropCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>(
     'environment'
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Camera controls state
+  const [zoom, setZoom] = useState(1);
+  const [maxZoom, setMaxZoom] = useState(1);
+  const [brightness, setBrightness] = useState(1);
+  const [showGrid, setShowGrid] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [hasTorch, setHasTorch] = useState(false);
+  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(
+    null
+  );
+  const [showControls, setShowControls] = useState(false);
+
+  // Crop state
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [isCropping, setIsCropping] = useState(false);
+  const [cropArea, setCropArea] = useState<CropArea>({
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [dragType, setDragType] = useState<'move' | 'resize' | null>(null);
+
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      trackRef.current = null;
     }
   }, []);
 
   const startCamera = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-
-    // Stop existing stream first
     stopCamera();
 
     try {
@@ -45,6 +90,24 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
       });
 
       streamRef.current = mediaStream;
+      const videoTrack = mediaStream.getVideoTracks()[0];
+      trackRef.current = videoTrack;
+
+      // Check capabilities
+      const capabilities =
+        videoTrack.getCapabilities?.() as MediaTrackCapabilities & {
+          zoom?: { min: number; max: number };
+          torch?: boolean;
+        };
+
+      if (capabilities) {
+        if (capabilities.zoom) {
+          setMaxZoom(capabilities.zoom.max || 1);
+        }
+        if (capabilities.torch) {
+          setHasTorch(true);
+        }
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -60,14 +123,72 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
 
   useEffect(() => {
     startCamera();
-
-    return () => {
-      stopCamera();
-    };
+    return () => stopCamera();
   }, [startCamera, stopCamera]);
+
+  // Apply zoom
+  useEffect(() => {
+    if (trackRef.current && maxZoom > 1) {
+      const constraints = { advanced: [{ zoom } as MediaTrackConstraintSet] };
+      trackRef.current.applyConstraints(constraints).catch(console.error);
+    }
+  }, [zoom, maxZoom]);
+
+  // Apply torch
+  useEffect(() => {
+    if (trackRef.current && hasTorch) {
+      const constraints = {
+        advanced: [{ torch: torchOn } as MediaTrackConstraintSet],
+      };
+      trackRef.current.applyConstraints(constraints).catch(console.error);
+    }
+  }, [torchOn, hasTorch]);
 
   const flipCamera = () => {
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
+    setTorchOn(false);
+  };
+
+  const handleZoom = (direction: 'in' | 'out') => {
+    setZoom((prev) => {
+      const step = 0.5;
+      if (direction === 'in') {
+        return Math.min(prev + step, maxZoom);
+      }
+      return Math.max(prev - step, 1);
+    });
+  };
+
+  const handleBrightness = (value: number) => {
+    setBrightness(value);
+  };
+
+  const handleTapToFocus = (e: React.MouseEvent<HTMLVideoElement>) => {
+    if (!trackRef.current) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+
+    setFocusPoint({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+
+    // Apply focus point if supported
+    const constraints = {
+      advanced: [
+        {
+          focusMode: 'manual',
+          focusDistance: 0,
+          pointsOfInterest: [{ x, y }],
+        } as MediaTrackConstraintSet,
+      ],
+    };
+
+    trackRef.current.applyConstraints(constraints).catch(() => {
+      // Fallback: just show visual feedback
+    });
+
+    // Hide focus indicator after 1.5s
+    setTimeout(() => setFocusPoint(null), 1500);
   };
 
   const capturePhoto = useCallback(() => {
@@ -82,46 +203,382 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Flip horizontally if using front camera
+    // Apply brightness filter
+    ctx.filter = `brightness(${brightness})`;
+
     if (facingMode === 'user') {
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
     }
 
     ctx.drawImage(video, 0, 0);
+    ctx.filter = 'none';
 
-    canvas.toBlob(
+    const imageData = canvas.toDataURL('image/jpeg', 0.9);
+    setCapturedImage(imageData);
+    setIsCropping(true);
+
+    // Initialize crop area to full image
+    setCropArea({ x: 10, y: 10, width: 80, height: 80 });
+  }, [facingMode, brightness]);
+
+  const handleCropMouseDown = (
+    e: React.MouseEvent,
+    type: 'move' | 'resize'
+  ) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setDragType(type);
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleCropMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isDragging || !dragType) return;
+
+      const deltaX = ((e.clientX - dragStart.x) / window.innerWidth) * 100;
+      const deltaY = ((e.clientY - dragStart.y) / window.innerHeight) * 100;
+
+      setCropArea((prev) => {
+        if (dragType === 'move') {
+          return {
+            ...prev,
+            x: Math.max(0, Math.min(100 - prev.width, prev.x + deltaX)),
+            y: Math.max(0, Math.min(100 - prev.height, prev.y + deltaY)),
+          };
+        } else {
+          return {
+            ...prev,
+            width: Math.max(20, Math.min(100 - prev.x, prev.width + deltaX)),
+            height: Math.max(20, Math.min(100 - prev.y, prev.height + deltaY)),
+          };
+        }
+      });
+
+      setDragStart({ x: e.clientX, y: e.clientY });
+    },
+    [isDragging, dragType, dragStart]
+  );
+
+  const handleCropMouseUp = useCallback(() => {
+    setIsDragging(false);
+    setDragType(null);
+  }, []);
+
+  useEffect(() => {
+    if (isCropping) {
+      window.addEventListener('mousemove', handleCropMouseMove);
+      window.addEventListener('mouseup', handleCropMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleCropMouseMove);
+        window.removeEventListener('mouseup', handleCropMouseUp);
+      };
+    }
+  }, [isCropping, handleCropMouseMove, handleCropMouseUp]);
+
+  const applyCrop = useCallback(() => {
+    if (!capturedImage || !cropCanvasRef.current) return;
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = cropCanvasRef.current!;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const cropX = (cropArea.x / 100) * img.width;
+      const cropY = (cropArea.y / 100) * img.height;
+      const cropWidth = (cropArea.width / 100) * img.width;
+      const cropHeight = (cropArea.height / 100) * img.height;
+
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+
+      ctx.drawImage(
+        img,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        0,
+        0,
+        cropWidth,
+        cropHeight
+      );
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const file = new File([blob], `capture-${Date.now()}.jpg`, {
+              type: 'image/jpeg',
+            });
+            const imageData = canvas.toDataURL('image/jpeg', 0.9);
+            stopCamera();
+            onCapture(imageData, file);
+          }
+        },
+        'image/jpeg',
+        0.9
+      );
+    };
+    img.src = capturedImage;
+  }, [capturedImage, cropArea, onCapture, stopCamera]);
+
+  const skipCrop = useCallback(() => {
+    if (!capturedImage || !canvasRef.current) return;
+
+    canvasRef.current.toBlob(
       (blob) => {
         if (blob) {
           const file = new File([blob], `capture-${Date.now()}.jpg`, {
             type: 'image/jpeg',
           });
-          const imageData = canvas.toDataURL('image/jpeg', 0.9);
           stopCamera();
-          onCapture(imageData, file);
+          onCapture(capturedImage, file);
         }
       },
       'image/jpeg',
       0.9
     );
-  }, [onCapture, facingMode, stopCamera]);
+  }, [capturedImage, onCapture, stopCamera]);
+
+  const retakePhoto = () => {
+    setCapturedImage(null);
+    setIsCropping(false);
+  };
 
   const handleClose = () => {
     stopCamera();
     onClose();
   };
 
+  // Crop UI
+  if (isCropping && capturedImage) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black">
+        {/* Header */}
+        <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={retakePhoto}
+          >
+            <RotateCcw className="h-5 w-5" />
+          </Button>
+          <span className="text-white font-medium">Crop Image</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={handleClose}
+          >
+            <X className="h-6 w-6" />
+          </Button>
+        </div>
+
+        {/* Image with crop overlay */}
+        <div className="relative h-full w-full flex items-center justify-center">
+          <img
+            src={capturedImage}
+            alt="Captured"
+            className="max-h-full max-w-full object-contain"
+          />
+
+          {/* Dark overlay outside crop area */}
+          <div className="absolute inset-0 pointer-events-none">
+            <div
+              className="absolute bg-black/60"
+              style={{ top: 0, left: 0, right: 0, height: `${cropArea.y}%` }}
+            />
+            <div
+              className="absolute bg-black/60"
+              style={{
+                top: `${cropArea.y + cropArea.height}%`,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              }}
+            />
+            <div
+              className="absolute bg-black/60"
+              style={{
+                top: `${cropArea.y}%`,
+                left: 0,
+                width: `${cropArea.x}%`,
+                height: `${cropArea.height}%`,
+              }}
+            />
+            <div
+              className="absolute bg-black/60"
+              style={{
+                top: `${cropArea.y}%`,
+                left: `${cropArea.x + cropArea.width}%`,
+                right: 0,
+                height: `${cropArea.height}%`,
+              }}
+            />
+          </div>
+
+          {/* Crop selection box */}
+          <div
+            className="absolute border-2 border-white cursor-move"
+            style={{
+              top: `${cropArea.y}%`,
+              left: `${cropArea.x}%`,
+              width: `${cropArea.width}%`,
+              height: `${cropArea.height}%`,
+            }}
+            onMouseDown={(e) => handleCropMouseDown(e, 'move')}
+          >
+            {/* Grid lines */}
+            <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
+              {[...Array(9)].map((_, i) => (
+                <div key={i} className="border border-white/30" />
+              ))}
+            </div>
+
+            {/* Corner handles */}
+            {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map(
+              (corner) => (
+                <div
+                  key={corner}
+                  className={cn(
+                    'absolute w-6 h-6 bg-white rounded-full cursor-se-resize',
+                    corner === 'top-left' && '-top-3 -left-3',
+                    corner === 'top-right' && '-top-3 -right-3',
+                    corner === 'bottom-left' && '-bottom-3 -left-3',
+                    corner === 'bottom-right' && '-bottom-3 -right-3'
+                  )}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    handleCropMouseDown(e, 'resize');
+                  }}
+                />
+              )
+            )}
+          </div>
+        </div>
+
+        {/* Crop canvas (hidden) */}
+        <canvas ref={cropCanvasRef} className="hidden" />
+
+        {/* Bottom controls */}
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-4 p-8 bg-gradient-to-t from-black/80 to-transparent">
+          <Button
+            className="border-white text-white hover:bg-white/20"
+            onClick={skipCrop}
+          >
+            Skip Crop
+          </Button>
+          <Button
+            className="bg-white text-black hover:bg-white/90"
+            onClick={applyCrop}
+          >
+            <Check className="h-4 w-4 mr-2" />
+            Apply Crop
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-black">
-      {/* Close button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="absolute top-4 right-4 z-10 text-white hover:bg-white/20"
-        onClick={handleClose}
-      >
-        <X className="h-6 w-6" />
-      </Button>
+      {/* Top controls */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-white hover:bg-white/20"
+          onClick={handleClose}
+        >
+          <X className="h-6 w-6" />
+        </Button>
+
+        <div className="flex items-center gap-2">
+          {/* Grid toggle */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'text-white hover:bg-white/20',
+              showGrid && 'bg-white/20'
+            )}
+            onClick={() => setShowGrid(!showGrid)}
+          >
+            <Grid3X3 className="h-5 w-5" />
+          </Button>
+
+          {/* Torch toggle */}
+          {hasTorch && facingMode === 'environment' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'text-white hover:bg-white/20',
+                torchOn && 'bg-yellow-500/50'
+              )}
+              onClick={() => setTorchOn(!torchOn)}
+            >
+              <Flashlight className="h-5 w-5" />
+            </Button>
+          )}
+
+          {/* Settings toggle */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'text-white hover:bg-white/20',
+              showControls && 'bg-white/20'
+            )}
+            onClick={() => setShowControls(!showControls)}
+          >
+            <Sun className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Brightness/Zoom controls panel */}
+      {showControls && (
+        <div className="absolute top-16 right-4 z-10 p-4 rounded-2xl bg-black/70 backdrop-blur-sm space-y-4">
+          {/* Brightness control */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-white text-xs">
+              <Sun className="h-4 w-4" />
+              <span>Brightness</span>
+            </div>
+            <input
+              type="range"
+              min="0.5"
+              max="1.5"
+              step="0.1"
+              value={brightness}
+              onChange={(e) => handleBrightness(parseFloat(e.target.value))}
+              className="w-32 accent-white"
+            />
+          </div>
+
+          {/* Zoom control */}
+          {maxZoom > 1 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-white text-xs">
+                <ZoomIn className="h-4 w-4" />
+                <span>Zoom {zoom.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max={maxZoom}
+                step="0.1"
+                value={zoom}
+                onChange={(e) => setZoom(parseFloat(e.target.value))}
+                className="w-32 accent-white"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Video feed */}
       <video
@@ -129,6 +586,8 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
         autoPlay
         playsInline
         muted
+        onClick={handleTapToFocus}
+        style={{ filter: `brightness(${brightness})` }}
         className={cn(
           'h-full w-full object-cover',
           facingMode === 'user' && '-scale-x-100'
@@ -138,10 +597,37 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
       {/* Hidden canvas for capture */}
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* Focus indicator */}
+      {focusPoint && (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: focusPoint.x - 30,
+            top: focusPoint.y - 30,
+          }}
+        >
+          <div className="w-16 h-16 border-2 border-yellow-400 rounded-lg animate-pulse">
+            <Focus className="w-full h-full p-3 text-yellow-400" />
+          </div>
+        </div>
+      )}
+
+      {/* Grid overlay */}
+      {showGrid && !isLoading && !error && (
+        <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3">
+          {[...Array(9)].map((_, i) => (
+            <div key={i} className="border border-white/30" />
+          ))}
+        </div>
+      )}
+
       {/* Loading state */}
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <div className="text-white">Initializing camera...</div>
+          <div className="text-center text-white">
+            <div className="animate-spin h-8 w-8 border-4 border-white border-t-transparent rounded-full mx-auto mb-4" />
+            <p>Initializing camera...</p>
+          </div>
         </div>
       )}
 
@@ -155,29 +641,63 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
         </div>
       )}
 
-      {/* Controls */}
+      {/* Bottom controls */}
       {!isLoading && !error && (
-        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-8 bg-gradient-to-t from-black/80 to-transparent p-8 pb-12">
-          {/* Flip camera */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-12 w-12 rounded-full bg-white/20 text-white hover:bg-white/30"
-            onClick={flipCamera}
-          >
-            <FlipHorizontal className="h-6 w-6" />
-          </Button>
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-8 pb-12">
+          <div className="flex items-center justify-center gap-8">
+            {/* Flip camera */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-12 w-12 rounded-full bg-white/20 text-white hover:bg-white/30"
+              onClick={flipCamera}
+            >
+              <FlipHorizontal className="h-6 w-6" />
+            </Button>
 
-          {/* Capture button */}
-          <button
-            onClick={capturePhoto}
-            className="h-20 w-20 rounded-full border-4 border-white bg-white/20 transition-transform hover:scale-105 active:scale-95"
-          >
-            <div className="m-1 h-full w-full rounded-full bg-white" />
-          </button>
+            {/* Capture button */}
+            <button
+              onClick={capturePhoto}
+              className="h-20 w-20 rounded-full border-4 border-white bg-white/20 transition-transform hover:scale-105 active:scale-95"
+            >
+              <div className="h-full w-full rounded-full bg-white" />
+            </button>
 
-          {/* Placeholder for symmetry */}
-          <div className="h-12 w-12" />
+            {/* Zoom buttons */}
+            {maxZoom > 1 ? (
+              <div className="flex flex-col gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-12 rounded-full bg-white/20 text-white hover:bg-white/30"
+                  onClick={() => handleZoom('in')}
+                  disabled={zoom >= maxZoom}
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-12 rounded-full bg-white/20 text-white hover:bg-white/30"
+                  onClick={() => handleZoom('out')}
+                  disabled={zoom <= 1}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="h-12 w-12" />
+            )}
+          </div>
+
+          {/* Zoom indicator */}
+          {maxZoom > 1 && zoom > 1 && (
+            <div className="text-center mt-4">
+              <span className="text-white/80 text-sm bg-black/40 px-3 py-1 rounded-full">
+                {zoom.toFixed(1)}x
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -185,9 +705,9 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
       {!isLoading && !error && (
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute inset-8 border-2 border-white/30 rounded-3xl" />
-          <div className="absolute left-1/2 top-8 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-full">
+          <div className="absolute left-1/2 top-20 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-full">
             <p className="text-white/80 text-sm">
-              Position your content in frame
+              Tap to focus • Position content in frame
             </p>
           </div>
         </div>
