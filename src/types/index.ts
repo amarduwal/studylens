@@ -50,8 +50,10 @@ export interface ScanResult {
   extractedLatex?: string;
   detectedLanguage?: string;
   explanation: Explanation;
-  language: SupportedLanguage;
   createdAt: Date;
+  explanationLanguage: SupportedLanguage;
+  targetEducationLevel?: string;
+  tokenCount: number;
   isBookmarked?: boolean;
 }
 

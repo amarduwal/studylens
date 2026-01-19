@@ -80,14 +80,28 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
     stopCamera();
 
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
+      let mediaStream: MediaStream;
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode,
+            width: { ideal: 1920, min: 640 },
+            height: { ideal: 1080, min: 480 },
+            frameRate: { ideal: 30 },
+          },
+          audio: false,
+        });
+      } catch {
+        // Fallback to basic constraints
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video:
+            facingMode === 'environment'
+              ? { facingMode: { ideal: 'environment' } }
+              : true,
+          audio: false,
+        });
+      }
 
       streamRef.current = mediaStream;
       const videoTrack = mediaStream.getVideoTracks()[0];
@@ -111,11 +125,51 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
 
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
+        // Wait for video to be ready
+        await new Promise<void>((resolve, reject) => {
+          const video = videoRef.current!;
+          video.onloadedmetadata = () => {
+            video.play().then(resolve).catch(reject);
+          };
+          video.onerror = () => reject(new Error('Video failed to load'));
+        });
       }
     } catch (err) {
       console.error('Camera error:', err);
-      setError('Unable to access camera. Please check permissions.');
+
+      if (err instanceof Error) {
+        if (
+          err.name === 'NotAllowedError' ||
+          err.name === 'PermissionDeniedError'
+        ) {
+          setError(
+            'Camera permission denied. Please allow camera access in your browser settings.'
+          );
+        } else if (
+          err.name === 'NotFoundError' ||
+          err.name === 'DevicesNotFoundError'
+        ) {
+          setError('No camera found. Please connect a camera and try again.');
+        } else if (
+          err.name === 'NotReadableError' ||
+          err.name === 'TrackStartError'
+        ) {
+          setError(
+            'Camera is in use by another application. Please close other apps using the camera.'
+          );
+        } else if (err.name === 'OverconstrainedError') {
+          setError(
+            'Camera does not support required settings. Trying with basic settings...'
+          );
+          // Already handled in fallback above
+        } else {
+          setError(`Camera error: ${err.message}`);
+        }
+      } else {
+        setError(
+          'Unable to access camera. Please check permissions and try again.'
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -163,31 +217,40 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
     setBrightness(value);
   };
 
-  const handleTapToFocus = (e: React.MouseEvent<HTMLVideoElement>) => {
+  const handleTapToFocus = (
+    e: React.MouseEvent<HTMLVideoElement> | React.TouchEvent<HTMLVideoElement>
+  ) => {
     if (!trackRef.current) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
+    let clientX: number, clientY: number;
 
-    setFocusPoint({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    if ('touches' in e) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
+
+    setFocusPoint({ x: clientX - rect.left, y: clientY - rect.top });
 
     // Apply focus point if supported
-    const constraints = {
-      advanced: [
-        {
-          focusMode: 'manual',
-          focusDistance: 0,
-          pointsOfInterest: [{ x, y }],
-        } as MediaTrackConstraintSet,
-      ],
-    };
+    try {
+      const constraints = {
+        advanced: [
+          {
+            focusMode: 'manual',
+            pointsOfInterest: [{ x, y }],
+          } as MediaTrackConstraintSet,
+        ],
+      };
+      trackRef.current.applyConstraints(constraints).catch(() => {});
+    } catch {}
 
-    trackRef.current.applyConstraints(constraints).catch(() => {
-      // Fallback: just show visual feedback
-    });
-
-    // Hide focus indicator after 1.5s
     setTimeout(() => setFocusPoint(null), 1500);
   };
 
@@ -265,16 +328,76 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
     setDragType(null);
   }, []);
 
+  // Touch handlers for mobile crop
+  const handleCropTouchStart = (
+    e: React.TouchEvent,
+    type: 'move' | 'resize'
+  ) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    setIsDragging(true);
+    setDragType(type);
+    setDragStart({ x: touch.clientX, y: touch.clientY });
+  };
+
+  const handleCropTouchMove = useCallback(
+    (e: TouchEvent) => {
+      if (!isDragging || !dragType) return;
+
+      const touch = e.touches[0];
+      const deltaX = ((touch.clientX - dragStart.x) / window.innerWidth) * 100;
+      const deltaY = ((touch.clientY - dragStart.y) / window.innerHeight) * 100;
+
+      setCropArea((prev) => {
+        if (dragType === 'move') {
+          return {
+            ...prev,
+            x: Math.max(0, Math.min(100 - prev.width, prev.x + deltaX)),
+            y: Math.max(0, Math.min(100 - prev.height, prev.y + deltaY)),
+          };
+        } else {
+          return {
+            ...prev,
+            width: Math.max(20, Math.min(100 - prev.x, prev.width + deltaX)),
+            height: Math.max(20, Math.min(100 - prev.y, prev.height + deltaY)),
+          };
+        }
+      });
+
+      setDragStart({ x: touch.clientX, y: touch.clientY });
+    },
+    [isDragging, dragType, dragStart]
+  );
+
+  const handleCropTouchEnd = useCallback(() => {
+    setIsDragging(false);
+    setDragType(null);
+  }, []);
+
   useEffect(() => {
     if (isCropping) {
+      // Mouse events
       window.addEventListener('mousemove', handleCropMouseMove);
       window.addEventListener('mouseup', handleCropMouseUp);
+      // Touch events
+      window.addEventListener('touchmove', handleCropTouchMove, {
+        passive: false,
+      });
+      window.addEventListener('touchend', handleCropTouchEnd);
       return () => {
         window.removeEventListener('mousemove', handleCropMouseMove);
         window.removeEventListener('mouseup', handleCropMouseUp);
+        window.removeEventListener('touchmove', handleCropTouchMove);
+        window.removeEventListener('touchend', handleCropTouchEnd);
       };
     }
-  }, [isCropping, handleCropMouseMove, handleCropMouseUp]);
+  }, [
+    isCropping,
+    handleCropMouseMove,
+    handleCropMouseUp,
+    handleCropTouchMove,
+    handleCropTouchEnd,
+  ]);
 
   const applyCrop = useCallback(() => {
     if (!capturedImage || !cropCanvasRef.current) return;
@@ -324,21 +447,18 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
   }, [capturedImage, cropArea, onCapture, stopCamera]);
 
   const skipCrop = useCallback(() => {
-    if (!capturedImage || !canvasRef.current) return;
+    if (!capturedImage) return;
 
-    canvasRef.current.toBlob(
-      (blob) => {
-        if (blob) {
-          const file = new File([blob], `capture-${Date.now()}.jpg`, {
-            type: 'image/jpeg',
-          });
-          stopCamera();
-          onCapture(capturedImage, file);
-        }
-      },
-      'image/jpeg',
-      0.9
-    );
+    // Convert base64 to blob directly
+    fetch(capturedImage)
+      .then((res) => res.blob())
+      .then((blob) => {
+        const file = new File([blob], `capture-${Date.now()}.jpg`, {
+          type: 'image/jpeg',
+        });
+        stopCamera();
+        onCapture(capturedImage, file);
+      });
   }, [capturedImage, onCapture, stopCamera]);
 
   const retakePhoto = () => {
@@ -421,7 +541,7 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
 
           {/* Crop selection box */}
           <div
-            className="absolute border-2 border-white cursor-move"
+            className="absolute border-2 border-white cursor-move touch-none"
             style={{
               top: `${cropArea.y}%`,
               left: `${cropArea.x}%`,
@@ -429,6 +549,7 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
               height: `${cropArea.height}%`,
             }}
             onMouseDown={(e) => handleCropMouseDown(e, 'move')}
+            onTouchStart={(e) => handleCropTouchStart(e, 'move')}
           >
             {/* Grid lines */}
             <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
@@ -452,6 +573,10 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
                   onMouseDown={(e) => {
                     e.stopPropagation();
                     handleCropMouseDown(e, 'resize');
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    handleCropTouchStart(e, 'resize');
                   }}
                 />
               )
@@ -587,6 +712,7 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
         playsInline
         muted
         onClick={handleTapToFocus}
+        onTouchStart={handleTapToFocus}
         style={{ filter: `brightness(${brightness})` }}
         className={cn(
           'h-full w-full object-cover',

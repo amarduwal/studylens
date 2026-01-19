@@ -28,7 +28,7 @@ export function getAnalysisPrompt(language: SupportedLanguage): string {
     Analyze the provided educational image and respond with a JSON object in this exact structure:
 
     {
-      "contentType": "math_problem" | "science_diagram" | "text_passage" | "handwritten_notes" | "graph_chart" | "code_snippet" | "other",
+      "contentType": "math_problem" | "algebra" | "geometry" | "calculus" | "statistics" | "physics_problem" | "chemistry_problem" | "biology_diagram" | "science_diagram" | "text_passage" | "essay" | "handwritten_notes" | "printed_text" | "graph_chart" | "table_data" | "code_snippet" | "circuit_diagram" | "map" | "historical_document" | "language_text" | "music_sheet" |  "other",
       "subject": "The academic subject (e.g., Mathematics, Physics, Chemistry, Biology, History, etc.)",
       "topic": "The specific topic within the subject",
       "difficulty": "easy" | "medium" | "hard",
@@ -49,7 +49,9 @@ export function getAnalysisPrompt(language: SupportedLanguage): string {
         "whyItMatters": "Real-world relevance or application",
         "practiceQuestions": ["2-3 similar practice questions"],
         "tips": ["Helpful tips or common mistakes to avoid"]
-      }
+      },
+      "explanationLanguage": "The language used in the explanation",
+      "targetEducationLevel": "primary" | "middle" | "high" | "undergraduate" | "graduate" | "professional" | "other",
     }
 
     IMPORTANT INSTRUCTIONS:

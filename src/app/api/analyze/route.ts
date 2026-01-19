@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 import { findOrCreateSubject, findOrCreateTopic } from "@/lib/subjects-topics";
 import { uploadBase64Image } from "@/lib/r2";
 import { checkScanLimit } from "@/lib/usage";
+import { sanitizeExplanation } from "@/components/common/helper";
 
 // Request validation schema
 const analyzeSchema = z.object({
@@ -128,11 +129,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
         extractedText: result.extractedText,
         extractedLatex: result.extractedLatex,
         detectedLanguage: result.detectedLanguage,
-        explanation: result.explanation,
-        explanationLanguage: language,
-        targetEducationLevel: educationLevel ? educationLevel as "elementary" | "middle" | "high" | "undergraduate" | "graduate" | "professional" : undefined,
+        explanation: sanitizeExplanation(result.explanation),
         processingTimeMs: processingTime,
         geminiModel: process.env.GOOGLE_AI_MODEL,
+        explanationLanguage: result.explanationLanguage || language,
+        targetEducationLevel: result.targetEducationLevel ? result.targetEducationLevel as "elementary" | "middle" | "high" | "undergraduate" | "graduate" | "professional" : undefined,
+        tokenCount: result.tokenCount,
         status: "completed",
       })
       .returning();
@@ -165,6 +167,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
     });
   } catch (error) {
     console.error("Analyze API error:", error);
+
+    // Log more details for debugging
+    if (error instanceof Error) {
+      console.error("Error name:", error.name);
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+    }
 
     const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
 

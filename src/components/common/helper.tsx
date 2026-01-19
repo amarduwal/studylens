@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { Explanation } from '@/types';
 
 // ✅ StatItem Component (React.FC)
 interface StatItemProps {
@@ -128,4 +129,34 @@ export function getTimeUntilReset(resetTime?: string): string {
     return `${hours}h ${minutes}m`;
   }
   return `${minutes} minutes`;
+}
+
+export function sanitizeExplanation(explanation: Explanation): Explanation {
+  try {
+    // If it's a string, parse it first
+    const obj =
+      typeof explanation === 'string' ? JSON.parse(explanation) : explanation;
+
+    // Ensure arrays are properly formatted
+    return {
+      simpleAnswer: obj.simpleAnswer || '',
+      stepByStep: Array.isArray(obj.stepByStep) ? obj.stepByStep : [],
+      concept: obj.concept || '',
+      whyItMatters: obj.whyItMatters || '',
+      practiceQuestions: Array.isArray(obj.practiceQuestions)
+        ? obj.practiceQuestions
+        : [],
+      tips: Array.isArray(obj.tips) ? obj.tips : [],
+    };
+  } catch (e) {
+    console.error('Failed to sanitize explanation:', e);
+    return {
+      simpleAnswer: String(explanation),
+      stepByStep: [],
+      concept: '',
+      whyItMatters: '',
+      practiceQuestions: [],
+      tips: [],
+    };
+  }
 }

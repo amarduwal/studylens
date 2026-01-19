@@ -14,7 +14,7 @@ export function Footer() {
         <div className="flex items-center justify-between">
           {/* Copyright - Left */}
           <p className="text-xs text-[hsl(var(--muted-foreground))]">
-            © {new Date().getFullYear()} StudyLens. All rights reserved.
+            © {new Date().getFullYear()} StudyLens
           </p>
 
           {/* Links - Right */}

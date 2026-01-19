@@ -83,7 +83,9 @@ export async function analyzeImage(
         practiceQuestions: parsed.explanation?.practiceQuestions,
         tips: parsed.explanation?.tips,
       },
-      language,
+      explanationLanguage: parsed.explanationLanguage || 'other',
+      targetEducationLevel: parsed.targetEducationLevel || 'other',
+      tokenCount: response?.usageMetadata?.totalTokenCount || 0,
       createdAt: new Date(),
     };
 
