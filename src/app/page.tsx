@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { UsageDisplay } from '@/components/usage-display';
 import { getTimeUntilReset, UpgradeBenefit } from '@/components/common/helper';
 import Link from 'next/link';
+import { Footer } from '@/components/layout/footer';
 
 export default function HomePage() {
   const router = useRouter();
@@ -107,7 +108,7 @@ export default function HomePage() {
     <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
       <Header />
 
-      <main className="flex-1 overflow-y-auto pb-20 md:pb-24">
+      <main className="flex-1 overflow-y-auto pb-20 md:pb-20">
         <div className="mx-auto w-full max-w-2xl py-6 px-4">
           <div className="space-y-6">
             {/* Hero */}
@@ -323,6 +324,7 @@ export default function HomePage() {
             </div>
           </>
         )}
+        <Footer />
       </main>
 
       <BottomNav />

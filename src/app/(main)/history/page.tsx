@@ -100,8 +100,8 @@ export default function HistoryPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
-      <main className="flex-1 overflow-y-auto pb-20 md:pb-24">
+    <div className="flex min-h-screen flex-col bg-[hsl(var(--background))] py-10">
+      <main className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-2xl py-6 px-4">
           <div className="space-y-6">
             {/* Header */}

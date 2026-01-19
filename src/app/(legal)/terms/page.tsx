@@ -129,7 +129,7 @@ export default function TermsOfServicePage() {
                         </span>{' '}
                         You must be at least 13 years old to use StudyLens. If
                         you are under 18, you represent that you have your
-                        parent or guardian&39;s permission to use the Service.
+                        parent or guardian&#39;s permission to use the Service.
                         Users under 13 require verified parental consent.
                       </p>
                     </div>
@@ -267,7 +267,7 @@ export default function TermsOfServicePage() {
                           30-Day Money-Back Guarantee:
                         </span>{' '}
                         <span className="text-[hsl(var(--muted-foreground))]">
-                          If you&39;re not satisfied with Premium, contact us
+                          If you&#39;re not satisfied with Premium, contact us
                           within 30 days of your first payment for a full
                           refund.
                         </span>
@@ -471,7 +471,7 @@ export default function TermsOfServicePage() {
                             Academic Integrity:
                           </span>{' '}
                           Using StudyLens to complete graded assignments or
-                          exams may violate your institution&39;s academic
+                          exams may violate your institution&#39;s academic
                           integrity policies. Use responsibly.
                         </p>
                         <p>
@@ -542,7 +542,7 @@ export default function TermsOfServicePage() {
                         StudyLens, its affiliates, officers, directors,
                         employees, and agents from any claims, damages, losses,
                         liabilities, costs, or expenses (including reasonable
-                        attorneys&39; fees) arising out of or related to:
+                        attorneys&#39; fees) arising out of or related to:
                       </p>
                       <ul className="list-disc list-inside space-y-2 ml-2">
                         <li>Your use of the Service</li>

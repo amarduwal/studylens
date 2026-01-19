@@ -246,13 +246,13 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Back to Login */}
+        {/* Back to Home */}
         <p className="text-center">
           <Link
-            href="/login"
+            href="/"
             className="text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
           >
-            ← Back to Login
+            ← Back to Home
           </Link>
         </p>
       </div>
