@@ -70,7 +70,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -81,7 +81,7 @@ export async function DELETE(
       );
     }
 
-    const bookmarkId = params.id;
+    const bookmarkId = (await params).id;
 
     await db
       .delete(bookmarks)

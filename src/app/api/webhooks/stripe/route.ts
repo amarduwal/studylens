@@ -108,7 +108,7 @@ async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
   }
 }
 
-async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
+async function handleSubscriptionUpdate(subscription: any) {
   const sub = await db.query.subscriptions.findFirst({
     where: eq(subscriptions.stripeSubscriptionId, subscription.id),
   });

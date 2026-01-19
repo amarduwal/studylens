@@ -7,11 +7,11 @@ import { eq, and, sql } from "drizzle-orm";
 // GET single scan
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    const scanId = params.id;
+    const scanId = (await params).id;
     const searchParams = request.nextUrl.searchParams;
     const sessionId = searchParams.get("sessionId");
 
@@ -72,11 +72,11 @@ export async function GET(
 // PATCH - Update scan
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    const scanId = params.id;
+    const scanId = (await params).id;
     const body = await request.json();
 
     // Verify ownership
@@ -116,11 +116,11 @@ export async function PATCH(
 // DELETE - Delete scan
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
-    const scanId = params.id;
+    const scanId = (await params).id;
 
     if (!session?.user?.id) {
       return NextResponse.json(
