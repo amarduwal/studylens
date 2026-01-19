@@ -14,9 +14,10 @@ import { cn } from '@/lib/utils';
 import { Message, ScanResult } from '@/types';
 import { getImageUrl } from '@/lib/image-utils';
 import { useSession } from 'next-auth/react';
+import { ExportPDF } from '@/components/common/export-pdf';
 
 export default function ResultsPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const params = useParams();
   const router = useRouter();
   const scanId = params.id as string;
@@ -172,6 +173,12 @@ export default function ResultsPage() {
             <h1 className="font-semibold text-base">Results</h1>
 
             <div className="flex gap-1">
+              {status === 'authenticated' && (
+                <ExportPDF
+                  result={result}
+                  imageUrl={getImageUrl(result.storageKey) || result.imageUrl}
+                />
+              )}
               <Button
                 variant="ghost"
                 size="icon"

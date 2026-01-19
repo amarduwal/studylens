@@ -49,9 +49,9 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-[hsl(var(--muted-foreground))] whitespace-pre-wrap">
+          <div className="text-[hsl(var(--muted-foreground))] whitespace-pre-wrap">
             {renderMarkdown(extractedText)}
-          </p>
+          </div>
         </CardContent>
       </Card>
 
