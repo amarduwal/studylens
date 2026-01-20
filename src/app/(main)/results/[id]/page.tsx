@@ -15,6 +15,7 @@ import { Message, ScanResult } from '@/types';
 import { getImageUrl } from '@/lib/image-utils';
 import { useSession } from 'next-auth/react';
 import { ExportPDF } from '@/components/common/export-pdf';
+import { ImageModal } from '@/components/common/image-modal';
 
 export default function ResultsPage() {
   const { data: session, status } = useSession();
@@ -23,6 +24,7 @@ export default function ResultsPage() {
   const scanId = params.id as string;
   const { showToast, ToastComponent } = useToast();
   const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
   const {
     currentResult,
@@ -202,18 +204,41 @@ export default function ResultsPage() {
       <main className="flex-1 overflow-y-auto pb-20 md:pb-24">
         <div className="mx-auto w-full max-w-2xl py-6 px-4">
           <div className="space-y-6">
-            {/* Original image */}
+            {/* Original image - Click to enlarge */}
             {result.imageUrl && (
-              <div className="rounded-2xl overflow-hidden border border-[hsl(var(--border))] shadow-sm">
-                <ImagePreview
+              <>
+                <div
+                  className="rounded-2xl overflow-hidden border border-[hsl(var(--border))] shadow-sm cursor-pointer group relative"
+                  onClick={() => setIsImageModalOpen(true)}
+                >
+                  <ImagePreview
+                    src={
+                      getImageUrl(result.storageKey) ||
+                      result.imageUrl ||
+                      '/Screenshot-1.png'
+                    }
+                    onClear={() => router.push('/')}
+                  />
+                  {/* Hover overlay */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                    <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity text-sm font-medium bg-black/50 px-3 py-1.5 rounded-full">
+                      Click to enlarge
+                    </span>
+                  </div>
+                </div>
+
+                <ImageModal
+                  key={isImageModalOpen ? 'open' : 'closed'}
                   src={
                     getImageUrl(result.storageKey) ||
                     result.imageUrl ||
                     '/Screenshot-1.png'
                   }
-                  onClear={() => router.push('/')}
+                  alt="Scanned content"
+                  isOpen={isImageModalOpen}
+                  onClose={() => setIsImageModalOpen(false)}
                 />
-              </div>
+              </>
             )}
 
             {/* Explanation */}
