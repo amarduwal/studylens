@@ -160,3 +160,22 @@ export function sanitizeExplanation(explanation: Explanation): Explanation {
     };
   }
 }
+
+const validEducationLevels = [
+  'elementary',
+  'middle',
+  'high',
+  'undergraduate',
+  'graduate',
+  'professional',
+  'other',
+] as const;
+
+export const getValidEducationLevel = (level?: string) => {
+  if (!level) return 'other';
+  return validEducationLevels.includes(
+    level as (typeof validEducationLevels)[number]
+  )
+    ? (level as (typeof validEducationLevels)[number])
+    : 'other';
+};

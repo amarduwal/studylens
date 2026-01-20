@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 import { findOrCreateSubject, findOrCreateTopic } from "@/lib/subjects-topics";
 import { uploadBase64Image } from "@/lib/r2";
 import { checkScanLimit } from "@/lib/usage";
-import { sanitizeExplanation } from "@/components/common/helper";
+import { getValidEducationLevel, sanitizeExplanation } from "@/components/common/helper";
 
 // Request validation schema
 const analyzeSchema = z.object({
@@ -43,8 +43,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
 
     const { image, mimeType, language, educationLevel, sessionId, filename } = validationResult.data;
 
-    const trackingUserId = session?.user?.id || null;
-    const trackingSessionId = trackingUserId ? null : (sessionId || body.sessionId);
+    const trackingUserId = session?.user?.id ? session.user.id : null;
+    const userSessionId = (sessionId || body.sessionId);
+    const trackingSessionId = userSessionId ? userSessionId : null;
 
     const limitCheck = await checkScanLimit(trackingUserId, trackingSessionId || sessionId);
 
@@ -120,8 +121,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       .insert(scans)
       .values({
         id: scanId,
-        userId: trackingUserId,
-        sessionId: sessionId || uuidv4(),
+        userId: trackingUserId || null,
+        sessionId: trackingSessionId || uuidv4(),
         subjectId,
         topicId,
         contentType: result.contentType || "other",
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
         processingTimeMs: processingTime,
         geminiModel: process.env.GOOGLE_AI_MODEL,
         explanationLanguage: result.explanationLanguage || language,
-        targetEducationLevel: result.targetEducationLevel ? result.targetEducationLevel as "elementary" | "middle" | "high" | "undergraduate" | "graduate" | "professional" : undefined,
+        targetEducationLevel: getValidEducationLevel(result.targetEducationLevel || educationLevel),
         tokenCount: result.tokenCount,
         status: "completed",
       })
