@@ -31,6 +31,8 @@ export function FollowUpChat({
     selectedLanguage,
     addMessage,
     setIsLoadingResponse,
+    sessionId,
+    deviceFingerprint,
   } = useScanStore();
 
   const scrollToBottom = () => {
@@ -62,7 +64,8 @@ export function FollowUpChat({
           originalContext,
           conversationHistory: messages,
           language: selectedLanguage,
-          sessionId: useScanStore.getState().sessionId,
+          sessionId,
+          deviceFingerprint,
         }),
       });
 

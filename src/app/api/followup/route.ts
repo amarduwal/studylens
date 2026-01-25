@@ -22,6 +22,7 @@ const followUpSchema = z.object({
   ).default([]),
   language: z.enum(["en", "hi", "ne", "es", "fr", "ar", "zh", "bn", "pt", "id"]).default("en"),
   sessionId: z.string(),
+  deviceFingerprint: z.string().optional(),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse<FollowUpResponse>> {
@@ -43,12 +44,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
       );
     }
 
-    const { scanId, question, originalContext, conversationHistory, language, sessionId } = validationResult.data;
+    const { scanId, question, originalContext, conversationHistory, language, sessionId, deviceFingerprint } = validationResult.data;
+    // Get client IP
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const clientIp = forwardedFor?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      null;
+
     const trackingUserId = session?.user?.id || null;
-    const trackingSessionId = trackingUserId ? null : body.sessionId;
+    const trackingSessionId = trackingUserId ? null : sessionId;
 
     // Check follow-up limit
-    const limitCheck = await checkFollowupLimit(trackingUserId, sessionId);
+    // Check follow-up limit
+    const limitCheck = await checkFollowupLimit(
+      trackingUserId,
+      trackingSessionId || sessionId,
+      trackingUserId ? null : deviceFingerprint,
+      trackingUserId ? null : clientIp
+    );
 
     if (!limitCheck.allowed) {
       return NextResponse.json(

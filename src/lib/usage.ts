@@ -110,13 +110,17 @@ export async function incrementGuestUsage(
  */
 export async function checkFollowupLimit(
   userId?: string | null,
-  sessionId?: string | null
+  sessionId?: string | null,
+  deviceFingerprint?: string | null,
+  clientIp?: string | null
 ): Promise<UsageCheck> {
   const result = await db.execute(sql`
     SELECT * FROM fn_check_rate_limit(
       ${userId || null}::UUID,
       ${sessionId || null}::VARCHAR,
-      'followup'
+      'followup',
+      ${deviceFingerprint || null}::VARCHAR,
+      ${clientIp || null}::VARCHAR
     )
   `);
 
@@ -127,19 +131,23 @@ export async function checkFollowupLimit(
     resets_at: Date;
   };
 
+  const isUnlimited = row.limit_value === -1;
+
   let message: string | undefined;
   if (!row.allowed) {
     if (!userId) {
       message = "Daily message limit reached. Sign in for more messages or upgrade to Premium for unlimited.";
-    } else {
+    } else if (!isUnlimited) {
       message = "Daily message limit reached. Upgrade to Premium for unlimited messages.";
+    } else {
+      message = "Limit reached. Please try again later.";
     }
   }
 
   return {
     allowed: row.allowed,
-    remaining: row.remaining,
-    limit: row.limit_value,
+    remaining: isUnlimited ? 999999 : row.remaining,
+    limit: isUnlimited ? -1 : row.limit_value,
     resetsAt: new Date(row.resets_at),
     message,
   };
@@ -150,12 +158,16 @@ export async function checkFollowupLimit(
  */
 export async function getRemainingScans(
   userId?: string | null,
-  sessionId?: string | null
+  sessionId?: string | null,
+  deviceFingerprint?: string | null,
+  clientIp?: string | null
 ): Promise<number> {
   const result = await db.execute(sql`
     SELECT fn_get_remaining_scans(
       ${userId || null}::UUID,
-      ${sessionId || null}::VARCHAR
+      ${sessionId || null}::VARCHAR,
+      ${deviceFingerprint || null}::VARCHAR,
+      ${clientIp || null}::VARCHAR
     ) as remaining
   `);
 
