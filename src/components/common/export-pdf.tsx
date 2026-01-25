@@ -1,27 +1,25 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { FileDown, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScanResult } from '@/types';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 interface ExportPDFProps {
   result: ScanResult;
-  imageUrl?: string;
+  imageUrls: string[];
   variant?: 'icon' | 'button';
   className?: string;
 }
 
 export function ExportPDF({
   result,
-  imageUrl,
+  imageUrls,
   variant = 'icon',
   className,
 }: ExportPDFProps) {
   const [isExporting, setIsExporting] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
 
   const generatePDF = async () => {
     setIsExporting(true);
@@ -170,26 +168,35 @@ export function ExportPDF({
       yPosition += 12;
 
       // Add image if available
-      if (imageUrl) {
+      if (imageUrls) {
         try {
-          checkPageBreak(60);
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
+          for (const url of imageUrls) {
+            checkPageBreak(60);
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
 
-          await new Promise<void>((resolve, reject) => {
-            img.onload = () => resolve();
-            img.onerror = () => reject();
-            img.src = imageUrl;
-          });
+            await new Promise<void>((resolve, reject) => {
+              img.onload = () => resolve();
+              img.onerror = () => reject();
+              img.src = url;
+            });
 
-          const imgWidth = Math.min(contentWidth, 100);
-          const imgHeight = (img.height / img.width) * imgWidth;
-          const maxImgHeight = 50;
-          const finalHeight = Math.min(imgHeight, maxImgHeight);
-          const finalWidth = (finalHeight / imgHeight) * imgWidth;
+            const imgWidth = Math.min(contentWidth, 100);
+            const imgHeight = (img.height / img.width) * imgWidth;
+            const maxImgHeight = 50;
+            const finalHeight = Math.min(imgHeight, maxImgHeight);
+            const finalWidth = (finalHeight / imgHeight) * imgWidth;
 
-          pdf.addImage(img, 'JPEG', margin, yPosition, finalWidth, finalHeight);
-          yPosition += finalHeight + 10;
+            pdf.addImage(
+              img,
+              'JPEG',
+              margin,
+              yPosition,
+              finalWidth,
+              finalHeight
+            );
+            yPosition += finalHeight + 10;
+          }
         } catch {
           // Skip image if it fails to load
         }

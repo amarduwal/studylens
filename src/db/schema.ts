@@ -316,6 +316,7 @@ export const pricingPlans = pgTable("pricing_plans", {
   // Limits
   dailyScanLimit: integer("daily_scan_limit"),
   monthlyScanLimit: integer("monthly_scan_limit"),
+  maxImagesPerScan: integer("max_images_per_scan").default(1),
   maxBookmarks: integer("max_bookmarks"),
   maxHistoryDays: integer("max_history_days"),
 
@@ -483,17 +484,30 @@ export const scans = pgTable("scans", {
 
   // Content Classification
   contentType: contentTypeEnum("content_type").default("other"),
-  subjectId: uuid("subject_id"), // Note: references subjects table (not included in schema)
-  topicId: uuid("topic_id"),     // Note: references topics table (not included in schema)
+  subjectId: uuid("subject_id").references(() => subjects.id, { onDelete: "set null" }), // Note: references subjects table (not included in schema)
+  topicId: uuid("topic_id").references(() => topics.id, { onDelete: "set null" }),     // Note: references topics table (not included in schema)
   difficulty: difficultyEnum("difficulty"),
 
   // Extracted Content
   extractedText: text("extracted_text"),
   extractedLatex: text("extracted_latex"),
-  detectedLanguage: varchar("detected_language", { length: 10 }),
+  detectedLanguage: varchar("detected_language", { length: 50 }),
 
-  // AI Response
-  explanation: jsonb("explanation").notNull(),
+  // AI Response - JSONB column
+  // Note: Drizzle handles JSON serialization, but we need to ensure clean data
+  explanation: jsonb("explanation").$type<{
+    simpleAnswer: string;
+    stepByStep: Array<{
+      step: number;
+      action: string;
+      explanation: string;
+      formula?: string | null;
+    }>;
+    concept: string;
+    whyItMatters?: string | null;
+    practiceQuestions?: string[];
+    tips?: string[];
+  }>().notNull(),
 
   // Settings used
   explanationLanguage: varchar("explanation_language", { length: 10 }).default("en"),

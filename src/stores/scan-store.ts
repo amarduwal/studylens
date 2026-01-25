@@ -5,8 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 interface ScanState {
   // Current scan
-  currentImage: string | null;
-  currentImageFile: File | null;
+  currentImages: string[];
+  currentImageFiles: File[];
   currentResult: ScanResult | null;
   isAnalyzing: boolean;
   error: string | null;
@@ -38,7 +38,9 @@ interface ScanState {
   searchQuery: string;
 
   // Actions
-  setCurrentImage: (image: string | null, file?: File | null) => void;
+  setCurrentImages: (images: string[], files: File[]) => void;
+  addImage: (image: string, file: File) => void;
+  removeImage: (index: number) => void;
   setCurrentResult: (result: ScanResult | null) => void;
   setIsAnalyzing: (isAnalyzing: boolean) => void;
   setError: (error: string | null) => void;
@@ -69,8 +71,8 @@ export const useScanStore = create<ScanState>()(
   persist(
     (set, get) => ({
       // Initial state
-      currentImage: null,
-      currentImageFile: null,
+      currentImages: [],
+      currentImageFiles: [],
       currentResult: null,
       isAnalyzing: false,
       error: null,
@@ -91,14 +93,20 @@ export const useScanStore = create<ScanState>()(
       searchQuery: '',
 
       // Actions
-      setCurrentImage: (image, file = null) =>
-        set({
-          currentImage: image,
-          currentImageFile: file,
-          currentResult: null,
-          error: null,
-          messages: [],
-        }),
+      setCurrentImages: (images, files) =>
+        set({ currentImages: images, currentImageFiles: files }),
+
+      addImage: (image, file) =>
+        set((state) => ({
+          currentImages: [...state.currentImages, image],
+          currentImageFiles: [...state.currentImageFiles, file],
+        })),
+
+      removeImage: (index) =>
+        set((state) => ({
+          currentImages: state.currentImages.filter((_, i) => i !== index),
+          currentImageFiles: state.currentImageFiles.filter((_, i) => i !== index),
+        })),
 
       setCurrentResult: (result) =>
         set((state) => {
@@ -219,8 +227,8 @@ export const useScanStore = create<ScanState>()(
 
       clearCurrentScan: () =>
         set({
-          currentImage: null,
-          currentImageFile: null,
+          currentImages: [],
+          currentImageFiles: [],
           currentResult: null,
           error: null,
           messages: [],
@@ -228,8 +236,8 @@ export const useScanStore = create<ScanState>()(
 
       reset: () =>
         set({
-          currentImage: null,
-          currentImageFile: null,
+          currentImages: [],
+          currentImageFiles: [],
           currentResult: null,
           isAnalyzing: false,
           error: null,

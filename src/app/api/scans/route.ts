@@ -53,7 +53,16 @@ export async function GET(request: NextRequest) {
       .select({
         scan: scans,
         isBookmarked: sql<boolean>`CASE WHEN ${bookmarks.id} IS NOT NULL THEN true ELSE false END`,
-        scanImage: scanImages,
+        imageUrls: sql<string[]>`COALESCE(
+          array_agg(${scanImages.storageKey} ORDER BY ${scanImages.sortOrder})
+          FILTER (WHERE ${scanImages.storageKey} IS NOT NULL),
+          ARRAY[]::text[]
+        )`,
+        storageKeys: sql<string[]>`COALESCE(
+          array_agg(${scanImages.storageKey} ORDER BY ${scanImages.sortOrder})
+          FILTER (WHERE ${scanImages.storageKey} IS NOT NULL),
+          ARRAY[]::text[]
+        )`,
         subject: subjects,
         topic: topics,
       })
@@ -73,6 +82,8 @@ export async function GET(request: NextRequest) {
           ? and(whereClause, sql`${bookmarks.id} IS NOT NULL`)
           : whereClause
       )
+      .groupBy(scans.id, bookmarks.id, subjects.id, topics.id)
+
       .orderBy(desc(scans.createdAt))
       .limit(limit)
       .offset(offset);
@@ -80,7 +91,8 @@ export async function GET(request: NextRequest) {
     const formattedResults = results.map(r => ({
       ...r.scan,
       isBookmarked: r.isBookmarked,
-      imageUrl: r.scanImage?.storageKey || null,
+      imageUrls: r.imageUrls,
+      storageKey: r.storageKeys,
       subject: r.subject?.name || null,
       topic: r.topic?.name || null,
     }));

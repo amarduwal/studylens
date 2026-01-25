@@ -100,6 +100,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (userWithSub) {
           session.user.subscriptionTier = userWithSub.subscriptionTier || "guest";
           session.user.plan = userWithSub.subscription?.plan || null;
+          session.user.maxImagesPerScan = userWithSub.subscription?.plan?.maxImagesPerScan || 1;
           session.user.avatarUrl = userWithSub.avatarUrl || '';
 
           // Preferences now on users table, not separate preferences table
