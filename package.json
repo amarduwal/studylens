@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --inspect",
     "build": "next build",
+    "build:pwa": "next build",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
