@@ -9,8 +9,12 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const sessionId = searchParams.get("sessionId");
+    const deviceFingerprint = searchParams.get("deviceFingerprint") || undefined;
+    const forwardedFor = request.headers.get("x-forwarded-for");
+    const realIp = request.headers.get("x-real-ip");
+    const clientIp = forwardedFor?.split(',')[0]?.trim() || realIp || undefined;
 
-    const usage = await getUsageStatus(userId, sessionId);
+    const usage = await getUsageStatus(userId, sessionId, deviceFingerprint, clientIp);
 
     return NextResponse.json({
       success: true,

@@ -36,13 +36,21 @@ interface UsageData {
 
 export function UsageDisplay() {
   const { data: session } = useSession();
-  const { sessionId } = useScanStore();
+  const { sessionId, deviceFingerprint } = useScanStore();
   const [usage, setUsage] = useState<UsageData | null>(null);
 
   useEffect(() => {
     async function fetchUsage() {
+      // Only fetch if we have session or fingerprint
+      if (!session?.user?.id && !deviceFingerprint && !sessionId) return;
+
       try {
-        const res = await fetch(`/api/usage?sessionId=${sessionId}`);
+        const params = new URLSearchParams();
+        if (sessionId) params.set('sessionId', sessionId);
+        if (deviceFingerprint)
+          params.set('deviceFingerprint', deviceFingerprint);
+
+        const res = await fetch(`/api/usage?${params.toString()}`);
         const data = await res.json();
         if (data.success) {
           setUsage(data.data);
@@ -53,7 +61,7 @@ export function UsageDisplay() {
     }
 
     fetchUsage();
-  }, [sessionId, session]);
+  }, [sessionId, deviceFingerprint, session]);
 
   if (!usage) return null;
 

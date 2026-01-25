@@ -8,7 +8,7 @@ import { scans, scanImages } from "@/db/schema";
 import { v4 as uuidv4 } from "uuid";
 import { findOrCreateSubject, findOrCreateTopic } from "@/lib/subjects-topics";
 import { uploadBase64Image } from "@/lib/r2";
-import { checkScanLimit } from "@/lib/usage";
+import { checkScanLimit, incrementGuestUsage } from "@/lib/usage";
 import { deepSanitize, getValidEducationLevel, sanitizeExplanation } from "@/components/common/helper";
 
 // Request validation schema
@@ -18,6 +18,7 @@ const analyzeSchema = z.object({
   language: z.enum(["en", "hi", "ne", "es", "fr", "ar", "zh", "bn", "pt", "id"]).default("en"),
   educationLevel: z.string().optional(),
   sessionId: z.string().optional(),
+  deviceFingerprint: z.string().optional(),
   filenames: z.array(z.string()).optional(),
 });
 
@@ -41,7 +42,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       );
     }
 
-    const { images, mimeTypes, language, educationLevel, sessionId, filenames } = validationResult.data;
+    const { images, mimeTypes, language, educationLevel, sessionId, deviceFingerprint, filenames } = validationResult.data;
+
+    // Get IP address from request
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const realIp = request.headers.get('x-real-ip');
+    const clientIp = forwardedFor?.split(',')[0]?.trim() || realIp || 'unknown';
+    const userAgent = request.headers.get('user-agent') || undefined;
+
 
     const trackingUserId = session?.user?.id ? session.user.id : null;
     const trackingSessionId = sessionId || body.sessionId || null;
@@ -64,7 +72,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       }
     }
 
-    const limitCheck = await checkScanLimit(trackingUserId, trackingSessionId || sessionId);
+    const limitCheck = await checkScanLimit(
+      trackingUserId,
+      trackingSessionId || sessionId,
+      deviceFingerprint,
+      clientIp
+    );
 
     if (!limitCheck.allowed) {
       return NextResponse.json(
@@ -217,6 +230,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
           explanationLanguage: result.explanationLanguage || language,
           targetEducationLevel: getValidEducationLevel(result.targetEducationLevel || educationLevel),
           tokenCount: result.tokenCount,
+          deviceFingerprint: trackingUserId ? null : (deviceFingerprint || null),
+          ipAddress: trackingUserId ? null : (clientIp || null),
           status: "completed",
         })
         .returning();
@@ -246,6 +261,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
           },
         },
         { status: 500 }
+      );
+    }
+
+    // Increment guest usage
+    if (!trackingUserId) {
+      await incrementGuestUsage(
+        trackingSessionId || sessionId || scanId,
+        deviceFingerprint,
+        clientIp,
+        userAgent
       );
     }
 

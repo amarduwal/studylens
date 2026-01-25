@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/db";
 import { users, userPreferences, subscriptions, pricingPlans, studyStreaks } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { createSession } from "@/lib/session-utils";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db),
@@ -115,6 +116,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
   events: {
+    async signIn({ user, account }) {
+      if (user.id) {
+        // Session info will be added via API middleware
+        // Update last login
+        await db
+          .update(users)
+          .set({ lastLoginAt: new Date() })
+          .where(eq(users.id, user.id));
+      }
+    },
     async createUser({ user }) {
       if (user.id) {
         // Create default preferences

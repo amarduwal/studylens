@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/components/providers/auth-provider';
+import { FingerprintProvider } from '@/components/providers/fingerprint-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -37,7 +38,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`min-h-screen flex flex-col ${inter.className}`}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <FingerprintProvider>{children}</FingerprintProvider>
+        </AuthProvider>
       </body>
     </html>
   );
