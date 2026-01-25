@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Explanation } from '@/types';
+import { EducationLevel, Explanation, StepByStep } from '@/types';
 
 // ✅ StatItem Component (React.FC)
 interface StatItemProps {
@@ -131,27 +131,170 @@ export function getTimeUntilReset(resetTime?: string): string {
   return `${minutes} minutes`;
 }
 
-export function sanitizeExplanation(explanation: Explanation): Explanation {
-  try {
-    // If it's a string, parse it first
-    const obj =
-      typeof explanation === 'string' ? JSON.parse(explanation) : explanation;
+// export function sanitizeExplanation(explanation: Explanation): Explanation {
+//   if (!explanation || typeof explanation !== 'object') {
+//     return {
+//       simpleAnswer: 'Unable to analyze content',
+//       stepByStep: [],
+//       concept: '',
+//       whyItMatters: '',
+//       practiceQuestions: [],
+//       tips: [],
+//     };
+//   }
 
-    // Ensure arrays are properly formatted
+//   return {
+//     simpleAnswer: String(
+//       explanation.simpleAnswer || 'Unable to analyze content'
+//     ),
+//     stepByStep: Array.isArray(explanation.stepByStep)
+//       ? explanation.stepByStep.map((step: StepByStep, index: number) => ({
+//           step: typeof step.step === 'number' ? step.step : index + 1,
+//           action: String(step.action || ''),
+//           explanation: String(step.explanation || ''),
+//           formula: step.formula ? String(step.formula) : null,
+//         }))
+//       : [],
+//     concept: String(explanation.concept || ''),
+//     whyItMatters: explanation.whyItMatters
+//       ? String(explanation.whyItMatters)
+//       : null,
+//     practiceQuestions: Array.isArray(explanation.practiceQuestions)
+//       ? explanation.practiceQuestions.map((q: any) => String(q))
+//       : [],
+//     tips: Array.isArray(explanation.tips)
+//       ? explanation.tips.map((t: any) => String(t))
+//       : [],
+//   };
+// }
+
+/**
+ * Sanitize a string for database storage
+ * Removes null bytes and other problematic characters
+ */
+export function sanitizeString(str: string | null | undefined): string | null {
+  if (str === null || str === undefined) {
+    return null;
+  }
+
+  return (
+    String(str)
+      // Remove null bytes (PostgreSQL doesn't like these)
+      .replace(/\x00/g, '')
+      // Remove other control characters except newlines, tabs, carriage returns
+      .replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      // Normalize line endings
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+  );
+}
+
+/**
+ * Sanitize the explanation object for database storage
+ */
+export function sanitizeExplanation(explanation: Explanation): Explanation {
+  if (!explanation || typeof explanation !== 'object') {
     return {
-      simpleAnswer: obj.simpleAnswer || '',
-      stepByStep: Array.isArray(obj.stepByStep) ? obj.stepByStep : [],
-      concept: obj.concept || '',
-      whyItMatters: obj.whyItMatters || '',
-      practiceQuestions: Array.isArray(obj.practiceQuestions)
-        ? obj.practiceQuestions
-        : [],
-      tips: Array.isArray(obj.tips) ? obj.tips : [],
+      simpleAnswer: 'Unable to analyze content',
+      stepByStep: [],
+      concept: '',
+      whyItMatters: '',
+      practiceQuestions: [],
+      tips: [],
     };
-  } catch (e) {
-    console.error('Failed to sanitize explanation:', e);
+  }
+
+  const sanitized = {
+    simpleAnswer:
+      sanitizeString(explanation.simpleAnswer) || 'Unable to analyze content',
+    stepByStep: Array.isArray(explanation.stepByStep)
+      ? explanation.stepByStep.map((step: StepByStep, index: number) => ({
+          step: typeof step.step === 'number' ? step.step : index + 1,
+          action: sanitizeString(step.action) || '',
+          explanation: sanitizeString(step.explanation) || '',
+          formula: step.formula
+            ? sanitizeString(step.formula) || undefined
+            : undefined,
+        }))
+      : [],
+    concept: explanation.concept
+      ? sanitizeString(explanation.concept) || ''
+      : '',
+    whyItMatters: explanation.whyItMatters
+      ? sanitizeString(explanation.whyItMatters) ?? undefined
+      : undefined,
+    practiceQuestions: Array.isArray(explanation.practiceQuestions)
+      ? explanation.practiceQuestions.map(
+          (q: string) => sanitizeString(String(q)) || ''
+        )
+      : [],
+    tips: Array.isArray(explanation.tips)
+      ? explanation.tips.map((t: string) => sanitizeString(String(t)) || '')
+      : [],
+  };
+
+  return sanitized;
+}
+
+/**
+ * Deep sanitize any object to ensure valid JSON serialization and database storage
+ */
+export function deepSanitize(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return null;
+  }
+
+  if (typeof obj === 'string') {
+    return sanitizeString(obj);
+  }
+
+  if (typeof obj === 'number') {
+    // Handle NaN and Infinity which aren't valid JSON
+    if (Number.isNaN(obj) || !Number.isFinite(obj)) {
+      return null;
+    }
+    return obj;
+  }
+
+  if (typeof obj === 'boolean') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => deepSanitize(item));
+  }
+
+  if (typeof obj === 'object') {
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = deepSanitize(value);
+    }
+    return result;
+  }
+
+  // Convert anything else to string
+  return sanitizeString(String(obj));
+}
+
+/**
+ * Prepare explanation for JSONB column insertion
+ * This ensures the object can be properly serialized
+ */
+export function prepareExplanationForDb(explanation: Explanation): Explanation {
+  const sanitized = sanitizeExplanation(explanation);
+  const deepSanitized = deepSanitize(sanitized);
+
+  // Verify it can be serialized
+  try {
+    const serialized = JSON.stringify(deepSanitized);
+    // Parse it back to ensure it's valid
+    JSON.parse(serialized);
+    return deepSanitized;
+  } catch (error) {
+    console.error('Failed to serialize explanation:', error);
+    // Return a safe fallback
     return {
-      simpleAnswer: String(explanation),
+      simpleAnswer: 'Content analysis completed',
       stepByStep: [],
       concept: '',
       whyItMatters: '',
@@ -161,7 +304,28 @@ export function sanitizeExplanation(explanation: Explanation): Explanation {
   }
 }
 
-const validEducationLevels = [
+/**
+ * Truncate text to a maximum length while preserving word boundaries
+ */
+export function truncateText(
+  text: string | null,
+  maxLength: number = 50000
+): string | null {
+  if (!text) return null;
+  if (text.length <= maxLength) return text;
+
+  // Find the last space before maxLength
+  const truncated = text.substring(0, maxLength);
+  const lastSpace = truncated.lastIndexOf(' ');
+
+  if (lastSpace > maxLength * 0.8) {
+    return truncated.substring(0, lastSpace) + '...';
+  }
+
+  return truncated + '...';
+}
+
+const validEducationLevels: EducationLevel[] = [
   'elementary',
   'middle',
   'high',
@@ -171,11 +335,13 @@ const validEducationLevels = [
   'other',
 ] as const;
 
-export const getValidEducationLevel = (level?: string) => {
+export function getValidEducationLevel(
+  level: string | undefined
+): EducationLevel {
   if (!level) return 'other';
-  return validEducationLevels.includes(
-    level as (typeof validEducationLevels)[number]
-  )
-    ? (level as (typeof validEducationLevels)[number])
-    : 'other';
-};
+  const normalized = level.toLowerCase().trim();
+  if (validEducationLevels.includes(normalized as EducationLevel)) {
+    return normalized as EducationLevel;
+  }
+  return 'other';
+}

@@ -1,7 +1,14 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Camera, Sparkles, Loader2, Crown, Clock } from 'lucide-react';
+import {
+  Camera,
+  Sparkles,
+  Loader2,
+  Crown,
+  Clock,
+  ImageIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CameraCapture } from '@/components/scanner/camera-capture';
 import { ImageUpload } from '@/components/scanner/image-upload';
@@ -15,69 +22,99 @@ import { UsageDisplay } from '@/components/usage-display';
 import { getTimeUntilReset, UpgradeBenefit } from '@/components/common/helper';
 import Link from 'next/link';
 import { Footer } from '@/components/layout/footer';
+import { useSession } from 'next-auth/react';
 
 export default function HomePage() {
+  const { data: session } = useSession();
   const router = useRouter();
   const [showCamera, setShowCamera] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const maxImages = session?.user?.maxImagesPerScan || 1;
 
   const {
-    currentImage,
-    currentImageFile,
+    currentImages,
+    currentImageFiles,
+    addImage,
+    removeImage,
     error,
     limitError,
     selectedLanguage,
-    setCurrentImage,
     setCurrentResult,
     setError,
-    clearCurrentScan,
   } = useScanStore();
 
   const handleImageCapture = useCallback(
     (imageData: string, file: File) => {
-      setCurrentImage(imageData, file);
+      if (currentImages.length >= maxImages) {
+        setError(
+          `Maximum ${maxImages} image${maxImages > 1 ? 's' : ''} allowed`
+        );
+        return;
+      }
+
+      if (currentImages.length >= 1 && maxImages === 1) {
+        setError('Multiple images is a premium feature');
+        setShowUpgradeDialog(true);
+        return;
+      }
+
+      addImage(imageData, file);
       setShowCamera(false);
     },
-    [setCurrentImage]
+    [addImage, currentImages.length, maxImages, setError, setShowUpgradeDialog]
   );
 
   const handleAnalyze = useCallback(async () => {
-    if (!currentImageFile) return;
+    if (currentImageFiles.length === 0) return;
 
     setAnalyzing(true);
     setError(null);
 
     try {
-      const base64 = await fileToBase64(currentImageFile);
+      const base64Images = await Promise.all(
+        currentImageFiles.map((file) => fileToBase64(file))
+      );
+
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image: base64,
-          mimeType: currentImageFile.type,
+          images: base64Images,
+          mimeTypes: currentImageFiles.map((f) => f.type),
+          filenames: currentImageFiles.map((f) => f.name),
           language: selectedLanguage,
           sessionId: useScanStore.getState().sessionId,
-          filename: currentImageFile.name,
         }),
       });
+
       const data = await response.json();
+
       if (data.success) {
-        // Store the image URL in the result
-        const resultWithImage = {
+        const resultWithImages = {
           ...data.data,
-          imageUrl: currentImage,
+          imageUrls: currentImages, // Store all images
         };
-        setCurrentResult(resultWithImage);
+        setCurrentResult(resultWithImages);
         router.push(`/results/${data.data.id}`);
       } else {
-        // ✅ LIMIT_EXCEEDED special handling
         if (data.error?.code === 'LIMIT_EXCEEDED') {
           useScanStore.getState().setLimitError(data.error);
           setShowUpgradeDialog(true);
           return;
         }
-        setError(data.error?.message || 'Failed to analyze image');
+        if (data.error?.code === 'PREMIUM_REQUIRED') {
+          setShowUpgradeDialog(true);
+          return;
+        }
+        if (data.error?.code === 503) {
+          setError(
+            'AI service is currently unavailable. Please try again later.'
+          );
+          return;
+        }
+        setError('Failed to analyze image');
+        // setError(data.error?.message || 'Failed to analyze image');
       }
     } catch (err) {
       console.error('Analysis error:', err);
@@ -86,12 +123,13 @@ export default function HomePage() {
       setAnalyzing(false);
     }
   }, [
-    currentImageFile,
-    currentImage,
+    currentImageFiles,
+    currentImages,
     selectedLanguage,
+    router,
     setCurrentResult,
     setError,
-    router,
+    setShowUpgradeDialog,
   ]);
 
   // Show fullscreen camera
@@ -124,37 +162,111 @@ export default function HomePage() {
 
             {/* Image capture area */}
             <div className="space-y-4">
-              {currentImage ? (
+              {currentImages.length > 0 ? (
                 <>
-                  <ImagePreview
-                    src={currentImage}
-                    onClear={clearCurrentScan}
-                    onRetake={() => setShowCamera(true)}
-                  />
+                  {/* Image Grid */}
+                  <div
+                    className={`${
+                      currentImages.length === 1 ? '' : 'grid grid-cols-2 gap-3'
+                    }`}
+                  >
+                    {currentImages.map((img, index) => (
+                      <div key={index} className="relative">
+                        <ImagePreview
+                          src={img}
+                          onClear={() => removeImage(index)}
+                          viewOnly={false}
+                        />
+                      </div>
+                    ))}
 
-                  {/* Error message */}
+                    {/* Add more button (premium only) */}
+                    {/* {currentImages.length < 5 &&
+                      session?.user?.subscriptionTier === 'premium' && (
+                        <button
+                          onClick={() => setShowCamera(true)}
+                          className="border-2 border-dashed rounded-xl flex items-center justify-center aspect-video hover:bg-muted/50"
+                        >
+                          <Camera className="h-8 w-8 text-muted-foreground" />
+                        </button>
+                      )} */}
+                    {currentImages.length < maxImages && maxImages > 1 && (
+                      <div className="col-span-2 flex gap-3 mt-3">
+                        <button
+                          onClick={() => setShowCamera(true)}
+                          className="flex-1 border-2 border-dashed rounded-xl flex flex-col items-center justify-center py-6 hover:bg-muted/50 transition-colors gap-3"
+                        >
+                          <div className="rounded-full bg-[hsl(var(--primary))]/10 p-4">
+                            <Camera className="h-10 w-10 text-muted-foreground" />
+                          </div>
+                          <span className="text-sm font-medium text-muted-foreground">
+                            Take a Photo
+                          </span>
+                        </button>
+                        <button
+                          onClick={() =>
+                            document.getElementById('upload-input')?.click()
+                          }
+                          className="flex-1 border-2 border-dashed rounded-xl flex flex-col items-center justify-center py-6 hover:bg-muted/50 transition-colors gap-3"
+                        >
+                          <div className="rounded-full bg-[hsl(var(--primary))]/10 p-4">
+                            <ImageIcon className="h-8 w-8 text-[hsl(var(--primary))]" />
+                          </div>
+                          <span className="text-sm font-medium text-muted-foreground">
+                            Upload Image
+                          </span>
+                        </button>
+                        <input
+                          id="upload-input"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const base64 = await fileToBase64(file);
+                              const imageData = `data:${file.type};base64,${base64}`;
+                              handleImageCapture(imageData, file);
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Image count */}
+                  {currentImages.length > 1 && (
+                    <p className="text-sm text-muted-foreground text-center">
+                      {currentImages.length} images selected
+                    </p>
+                  )}
+
                   {error && (
                     <div className="rounded-lg bg-red-500/10 p-4 text-center text-sm text-red-500">
                       {error}
                     </div>
                   )}
 
-                  {/* Analyze button */}
                   <Button
                     onClick={handleAnalyze}
-                    disabled={!currentImageFile || analyzing}
+                    disabled={currentImageFiles.length === 0 || analyzing}
                     className="w-full h-14 text-lg"
                     size="lg"
                   >
                     {analyzing ? (
                       <>
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        Analyzing...
+                        Analyzing
+                        {currentImages.length > 1
+                          ? ` ${currentImages.length} images `
+                          : ''}
+                        ...
                       </>
                     ) : (
                       <>
                         <Sparkles className="mr-2 h-5 w-5" />
-                        Explain This
+                        Explain {currentImages.length > 1 ? 'These' : 'This'}
                       </>
                     )}
                   </Button>
@@ -184,7 +296,19 @@ export default function HomePage() {
                   </div>
 
                   {/* Upload area */}
-                  <ImageUpload onImageSelect={handleImageCapture} />
+                  <ImageUpload
+                    onImageSelect={handleImageCapture}
+                    onMultipleImageSelect={(results) => {
+                      const available = maxImages - currentImages.length;
+                      results
+                        .slice(0, available)
+                        .forEach(({ imageData, file }) => {
+                          addImage(imageData, file);
+                        });
+                    }}
+                    allowMultiple={maxImages > 1}
+                    maxFiles={maxImages}
+                  />
                 </>
               )}
             </div>

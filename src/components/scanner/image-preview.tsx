@@ -9,6 +9,7 @@ interface ImagePreviewProps {
   src: string;
   onClear: () => void;
   onRetake?: () => void;
+  viewOnly: boolean;
   isLoading?: boolean;
 }
 
@@ -16,6 +17,7 @@ export function ImagePreview({
   src,
   onClear,
   onRetake,
+  viewOnly,
   isLoading,
 }: ImagePreviewProps) {
   const [imageError, setImageError] = useState(false);
@@ -64,15 +66,17 @@ export function ImagePreview({
             <RotateCcw className="h-4 w-4" />
           </Button>
         )}
-        <Button
-          variant="secondary"
-          size="icon"
-          className="h-9 w-9 rounded-full bg-amber-700 shadow-md hover:bg-black"
-          onClick={onClear}
-          disabled={isLoading}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        {!viewOnly && (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-9 w-9 rounded-full bg-amber-700 shadow-md hover:bg-black"
+            onClick={onClear}
+            disabled={isLoading}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -242,11 +242,11 @@ export default function HistoryPage() {
                       <CardContent className="p-4">
                         <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
                           {/* Image thumbnail */}
-                          {scan.imageUrl && (
+                          {scan.imageUrls && (
                             <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-[hsl(var(--muted))] shrink-0">
                               <Image
                                 src={
-                                  getImageUrl(scan.imageUrl) ||
+                                  getImageUrl(scan.imageUrls[0]) ||
                                   '/Screenshot-1.png'
                                 }
                                 alt="Scan thumbnail"

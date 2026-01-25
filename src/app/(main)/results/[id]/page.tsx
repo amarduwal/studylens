@@ -12,7 +12,7 @@ import { useScanStore } from '@/stores/scan-store';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import { Message, ScanResult } from '@/types';
-import { getImageUrl } from '@/lib/image-utils';
+import { getImageUrl, getImageUrls } from '@/lib/image-utils';
 import { useSession } from 'next-auth/react';
 import { ExportPDF } from '@/components/common/export-pdf';
 import { ImageModal } from '@/components/common/image-modal';
@@ -24,6 +24,7 @@ export default function ResultsPage() {
   const scanId = params.id as string;
   const { showToast, ToastComponent } = useToast();
   const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
   const {
@@ -96,7 +97,7 @@ export default function ResultsPage() {
     }
 
     loadConversation();
-  }, [scanId]);
+  }, [scanId, setHasLoadedMessages, hasLoadedMessages]);
 
   useEffect(() => {
     return () => {
@@ -178,7 +179,7 @@ export default function ResultsPage() {
               {status === 'authenticated' && (
                 <ExportPDF
                   result={result}
-                  imageUrl={getImageUrl(result.storageKey) || result.imageUrl}
+                  imageUrls={getImageUrls(result.imageUrls)}
                 />
               )}
               <Button
@@ -205,36 +206,71 @@ export default function ResultsPage() {
         <div className="mx-auto w-full max-w-2xl py-6 px-4">
           <div className="space-y-6">
             {/* Original image - Click to enlarge */}
-            {result.imageUrl && (
+            {result.imageUrls && result.imageUrls.length > 0 && (
               <>
-                <div
-                  className="rounded-2xl overflow-hidden border border-[hsl(var(--border))] shadow-sm cursor-pointer group relative"
-                  onClick={() => setIsImageModalOpen(true)}
-                >
-                  <ImagePreview
-                    src={
-                      getImageUrl(result.storageKey) ||
-                      result.imageUrl ||
-                      '/Screenshot-1.png'
-                    }
-                    onClear={() => router.push('/')}
-                  />
-                  {/* Hover overlay */}
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                    <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity text-sm font-medium bg-black/50 px-3 py-1.5 rounded-full">
-                      Click to enlarge
-                    </span>
+                {result.imageUrls.length > 1 ? (
+                  // Multiple images grid
+                  <div className="grid grid-cols-2 gap-3">
+                    {result.imageUrls.map((url, index) => (
+                      <div
+                        key={index}
+                        className="rounded-2xl overflow-hidden border border-[hsl(var(--border))] shadow-sm cursor-pointer group relative aspect-video"
+                        onClick={() => {
+                          setSelectedImageIndex(index);
+                          setIsImageModalOpen(true);
+                        }}
+                      >
+                        <ImagePreview
+                          src={
+                            url ||
+                            getImageUrl(result.storageKey?.[index]) ||
+                            '/Screenshot-1.png'
+                          }
+                          onClear={() => router.push('/')}
+                          viewOnly={true}
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                          <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity text-sm font-medium bg-black/50 px-3 py-1.5 rounded-full">
+                            Click to enlarge
+                          </span>
+                        </div>
+                        <div className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
+                          {index + 1}/{result.imageUrls.length}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                ) : (
+                  // Single image
+                  <div
+                    className="rounded-2xl overflow-hidden border border-[hsl(var(--border))] shadow-sm cursor-pointer group relative"
+                    onClick={() => {
+                      setSelectedImageIndex(0);
+                      setIsImageModalOpen(true);
+                    }}
+                  >
+                    <ImagePreview
+                      src={
+                        getImageUrl(result.storageKey?.[0]) ||
+                        result.imageUrls[0] ||
+                        '/Screenshot-1.png'
+                      }
+                      onClear={() => router.push('/')}
+                      viewOnly={true}
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                      <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity text-sm font-medium bg-black/50 px-3 py-1.5 rounded-full">
+                        Click to enlarge
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <ImageModal
-                  key={isImageModalOpen ? 'open' : 'closed'}
-                  src={
-                    getImageUrl(result.storageKey) ||
-                    result.imageUrl ||
-                    '/Screenshot-1.png'
-                  }
-                  alt="Scanned content"
+                  images={result.imageUrls.map(
+                    (url, i) => getImageUrl(result.storageKey?.[i]) || url
+                  )}
+                  initialIndex={selectedImageIndex}
                   isOpen={isImageModalOpen}
                   onClose={() => setIsImageModalOpen(false)}
                 />

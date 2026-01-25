@@ -6,7 +6,8 @@ declare module "next-auth" {
     user: {
       id: string;
       subscriptionTier: "guest" | "free" | "premium" | "enterprise";
-      avavtarUrl?: string;
+      avatarUrl?: string;
+      maxImagesPerScan?: number;
       plan: PricingPlan | null;
       preferences: {
         preferredLanguage: string;

@@ -38,9 +38,18 @@ export interface Explanation {
   tips?: string[];
 }
 
+export type EducationLevel =
+  | "elementary"
+  | "middle"
+  | "high"
+  | "undergraduate"
+  | "graduate"
+  | "professional"
+  | "other";
+
 export interface ScanResult {
   id: string;
-  imageUrl: string;
+  imageUrls: string[];
   storageKey: string;
   contentType: ContentType;
   subject: string;
@@ -64,7 +73,7 @@ export interface ScanBookmarkResult {
   contentType: ContentType;
   detectedLanguage: string;
   extractedText: string;
-  imageUrl: string;
+  imageUrls: string[];
   subject: string;
   subjectIcon: string;
   subjectColor: string;

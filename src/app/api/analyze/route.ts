@@ -9,16 +9,16 @@ import { v4 as uuidv4 } from "uuid";
 import { findOrCreateSubject, findOrCreateTopic } from "@/lib/subjects-topics";
 import { uploadBase64Image } from "@/lib/r2";
 import { checkScanLimit } from "@/lib/usage";
-import { getValidEducationLevel, sanitizeExplanation } from "@/components/common/helper";
+import { deepSanitize, getValidEducationLevel, sanitizeExplanation } from "@/components/common/helper";
 
 // Request validation schema
 const analyzeSchema = z.object({
-  image: z.string().min(1, "Image is required"),
-  mimeType: z.string().default("image/jpeg"),
+  images: z.array(z.string().min(1)).min(1).max(5),
+  mimeTypes: z.array(z.string()).min(1).max(5),
   language: z.enum(["en", "hi", "ne", "es", "fr", "ar", "zh", "bn", "pt", "id"]).default("en"),
   educationLevel: z.string().optional(),
   sessionId: z.string().optional(),
-  filename: z.string().optional(),
+  filenames: z.array(z.string()).optional(),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeResponse>> {
@@ -41,11 +41,28 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       );
     }
 
-    const { image, mimeType, language, educationLevel, sessionId, filename } = validationResult.data;
+    const { images, mimeTypes, language, educationLevel, sessionId, filenames } = validationResult.data;
 
     const trackingUserId = session?.user?.id ? session.user.id : null;
-    const userSessionId = (sessionId || body.sessionId);
-    const trackingSessionId = userSessionId ? userSessionId : null;
+    const trackingSessionId = sessionId || body.sessionId || null;
+
+    // Check if user can upload multiple images (premium only)
+    if (images.length > 1) {
+      // Get user subscription tier from session
+      const isPremium = session?.user?.subscriptionTier === 'premium';
+      if (!trackingUserId || !isPremium) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "PREMIUM_REQUIRED",
+              message: "Multiple image upload is a premium feature. Please upgrade.",
+            },
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     const limitCheck = await checkScanLimit(trackingUserId, trackingSessionId || sessionId);
 
@@ -65,17 +82,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       );
     }
 
-    // Check if image is too large (base64 encoded)
-    const imageSizeBytes = (image.length * 3) / 4;
-    const maxSizeBytes = 10 * 1024 * 1024; // 10MB
+    // Check total size for all images
+    const totalSize = images.reduce((sum, img) => sum + (img.length * 3) / 4, 0);
+    const maxSizeBytes = 20 * 1024 * 1024; // 20MB total for multiple images
 
-    if (imageSizeBytes > maxSizeBytes) {
+    if (totalSize > maxSizeBytes) {
       return NextResponse.json(
         {
           success: false,
           error: {
             code: "IMAGE_TOO_LARGE",
-            message: "Image size exceeds 10MB limit. Please compress the image.",
+            message: "Total images size exceeds 20MB limit. Please compress the images.",
           },
         },
         { status: 400 }
@@ -84,7 +101,38 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
 
     // Analyze with Gemini
     const startTime = Date.now();
-    const result = await analyzeImage(image, mimeType, language as SupportedLanguage);
+    let result;
+
+    try {
+      result = await analyzeImage(
+        images.length === 1 ? images[0] : images,
+        mimeTypes.length === 1 ? mimeTypes[0] : mimeTypes,
+        language as SupportedLanguage
+      );
+    } catch (analysisError) {
+      console.error("Primary analysis failed:", analysisError);
+
+      // Return a more helpful error
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "AI_ANALYSIS_ERROR",
+            message: analysisError instanceof Error
+              ? analysisError.message
+              : "Failed to analyze the image. Please try with a clearer image.",
+          },
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log("Analysis result received:", {
+      contentType: result.contentType,
+      subject: result.subject,
+      topic: result.topic
+    });
+
     console.log(result);
     const processingTime = Date.now() - startTime;
 
@@ -100,14 +148,45 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       }
     }
 
+    // Deep sanitize the explanation before storing
+    const sanitizedExplanation = deepSanitize(sanitizeExplanation(result.explanation));
+
+    // Verify the explanation can be serialized
+    try {
+      JSON.stringify(sanitizedExplanation);
+    } catch (serializeError) {
+      console.error("Explanation serialization failed:", serializeError);
+      throw new Error("Failed to process explanation data");
+    }
+
     // Upload image to R2
-    const uploadResult = await uploadBase64Image(image, {
-      originalFilename: filename,
-      mimeType,
-      folder: `scans/${trackingUserId || trackingSessionId}`,
-      userId: trackingUserId || undefined,
-      sessionId: trackingSessionId,
-    });
+    // Upload all images to R2
+    let uploadResults;
+    try {
+      uploadResults = await Promise.all(
+        images.map((image, index) =>
+          uploadBase64Image(image, {
+            originalFilename: filenames?.[index],
+            mimeType: mimeTypes[index],
+            folder: `scans/${trackingUserId || trackingSessionId}`,
+            userId: trackingUserId || undefined,
+            sessionId: trackingSessionId,
+          })
+        )
+      );
+    } catch (uploadError) {
+      console.error("Error uploading images:", uploadError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "UPLOAD_ERROR",
+            message: "Failed to upload images. Please try again.",
+          },
+        },
+        { status: 500 }
+      );
+    }
 
     // Generate scan ID
     const scanId = uuidv4();
@@ -117,48 +196,87 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
     // 1. Increment daily_usage (scan_count)
     // 2. Update user totals (total_scans, last_active_at)
     // 3. Update study streaks
-    await db
-      .insert(scans)
-      .values({
-        id: scanId,
-        userId: trackingUserId || null,
-        sessionId: trackingSessionId || uuidv4(),
-        subjectId,
-        topicId,
-        contentType: result.contentType || "other",
-        difficulty: result.difficulty,
-        extractedText: result.extractedText,
-        extractedLatex: result.extractedLatex,
-        detectedLanguage: result.detectedLanguage,
-        explanation: sanitizeExplanation(result.explanation),
-        processingTimeMs: processingTime,
-        geminiModel: process.env.GOOGLE_AI_MODEL,
-        explanationLanguage: result.explanationLanguage || language,
-        targetEducationLevel: getValidEducationLevel(result.targetEducationLevel || educationLevel),
-        tokenCount: result.tokenCount,
-        status: "completed",
-      })
-      .returning();
+    // Store scan in database with sanitized data
+    try {
+      await db
+        .insert(scans)
+        .values({
+          id: scanId,
+          userId: trackingUserId || null,
+          sessionId: trackingSessionId || uuidv4(),
+          subjectId,
+          topicId,
+          contentType: result.contentType || "other",
+          difficulty: result.difficulty,
+          extractedText: result.extractedText || "",
+          extractedLatex: result.extractedLatex,
+          detectedLanguage: result.detectedLanguage,
+          explanation: sanitizedExplanation, // Use sanitized version
+          processingTimeMs: processingTime,
+          geminiModel: process.env.GOOGLE_AI_MODEL,
+          explanationLanguage: result.explanationLanguage || language,
+          targetEducationLevel: getValidEducationLevel(result.targetEducationLevel || educationLevel),
+          tokenCount: result.tokenCount,
+          status: "completed",
+        })
+        .returning();
+
+      console.log("Scan inserted successfully:", scanId);
+    } catch (dbError) {
+      console.error("Database insert error:", dbError);
+
+      // Log more details
+      if (dbError instanceof Error) {
+        console.error("DB Error name:", dbError.name);
+        console.error("DB Error message:", dbError.message);
+      }
+
+      // Try to provide a more specific error message
+      let errorMessage = "Failed to save scan results.";
+      if (dbError instanceof Error && dbError.message.includes("invalid input syntax")) {
+        errorMessage = "Invalid data format. Please try again with a different image.";
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "DATABASE_ERROR",
+            message: errorMessage,
+          },
+        },
+        { status: 500 }
+      );
+    }
 
     // Save image reference
-    await db.insert(scanImages).values({
-      scanId: scanId,
-      storageProvider: "r2",
-      storageKey: uploadResult.publicUrl,
-      originalFilename: filename || `scan-${Date.now()}.${mimeType.split('/')[1]}`,
-      mimeType: uploadResult.mimeType,
-      fileSize: uploadResult.fileSize,
-      fileHash: uploadResult.fileHash,
-      isProcessed: true,
-      sortOrder: 0,
-    });
+    // Save all image references
+    try {
+      await db.insert(scanImages).values(
+        uploadResults.map((upload, index) => ({
+          scanId: scanId,
+          storageProvider: "r2" as const,
+          storageKey: upload.publicUrl,
+          originalFilename: filenames?.[index] || `scan-${Date.now()}-${index}.${mimeTypes[index].split('/')[1]}`,
+          mimeType: upload.mimeType,
+          fileSize: upload.fileSize,
+          fileHash: upload.fileHash,
+          isProcessed: true,
+          sortOrder: index,
+        }))
+      );
+    } catch (imageDbError) {
+      console.error("Error saving image references:", imageDbError);
+      // Continue - scan was saved, just images weren't linked
+    }
+
 
     return NextResponse.json({
       success: true,
       data: {
         ...result,
         id: scanId,
-        imageUrl: uploadResult.publicUrl,
+        imageUrls: uploadResults.map(r => r.publicUrl),
         usage: {
           remaining: limitCheck.remaining - 1,
           limit: limitCheck.limit,

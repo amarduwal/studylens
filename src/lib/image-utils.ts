@@ -1,6 +1,20 @@
 const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_URL || "";
 
 /**
+ * Get public URLs from storage keys (client-side) - supports multiple images
+ */
+export function getImageUrls(storageKeys: string[] | string | null | undefined): string[] {
+  if (!storageKeys) return [];
+
+  // If single string, convert to array
+  const keys = Array.isArray(storageKeys) ? storageKeys : [storageKeys];
+
+  return keys
+    .map(key => getImageUrl(key))
+    .filter((url): url is string => url !== null);
+}
+
+/**
  * Get public URL from storage key (client-side)
  */
 export function getImageUrl(storageKey: string | null | undefined): string | null {
