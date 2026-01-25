@@ -116,29 +116,31 @@ export async function getUsageStatus(
   sessionId?: string | null
 ) {
   const identifier = userId || sessionId;
-  const defaultPlanSlug = userId ? 'free' : 'guest';
 
   const result = await db.execute(sql`
     WITH usage_stats AS (
       SELECT *
       FROM v_daily_usage_stats
       WHERE identifier = ${identifier}
-      AND usage_date = CURRENT_DATE
       LIMIT 1
     ),
-    default_plan AS (
+    fallback_plan AS (
       SELECT daily_scan_limit
       FROM pricing_plans
-      WHERE slug = ${defaultPlanSlug}
+      WHERE slug = CASE
+        WHEN ${userId}::TEXT IS NOT NULL THEN 'free'
+        ELSE 'guest'
+      END
       LIMIT 1
     )
     SELECT
       COALESCE(us.scan_count, 0) AS scan_count,
       COALESCE(us.message_count, 0) AS message_count,
-      COALESCE(us.daily_limit, dp.daily_scan_limit) AS daily_limit,
+      COALESCE(us.practice_count, 0) AS practice_count,
+      COALESCE(us.daily_limit, fp.daily_scan_limit, 5) AS daily_limit,
       COALESCE(us.can_scan, true) AS can_scan,
-      COALESCE(us.remaining_scans, dp.daily_scan_limit) AS remaining_scans
-    FROM default_plan dp
+      COALESCE(us.remaining_scans, fp.daily_scan_limit, 5) AS remaining_scans
+    FROM fallback_plan fp
     LEFT JOIN usage_stats us ON true
   `);
 
@@ -151,7 +153,8 @@ export async function getUsageStatus(
     remaining_scans: number;
   };
 
-  const isUnlimited = row.daily_limit === 999999 || row.daily_limit === null;
+  // -1 means unlimited (enterprise only)
+  const isUnlimited = row.daily_limit === -1;
 
   return {
     scans: {
