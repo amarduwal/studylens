@@ -37,6 +37,10 @@ interface ScanState {
   searchResults: ScanResult[];
   searchQuery: string;
 
+  // Device fingerprint/identifier
+  deviceFingerprint: string | null;
+  setDeviceFingerprint: (fingerprint: string) => void;
+
   // Actions
   setCurrentImages: (images: string[], files: File[]) => void;
   addImage: (image: string, file: File) => void;
@@ -91,6 +95,9 @@ export const useScanStore = create<ScanState>()(
       isLoadingMore: false,
       searchResults: [],
       searchQuery: '',
+      deviceFingerprint: null,
+
+      setDeviceFingerprint: (fingerprint) => set({ deviceFingerprint: fingerprint }),
 
       // Actions
       setCurrentImages: (images, files) =>
@@ -343,6 +350,7 @@ export const useScanStore = create<ScanState>()(
         scanHistory: state.scanHistory,
         selectedLanguage: state.selectedLanguage,
         sessionId: state.sessionId,
+        deviceFingerprint: state.deviceFingerprint
       }),
     }
   )

@@ -42,6 +42,8 @@ export default function HomePage() {
     selectedLanguage,
     setCurrentResult,
     setError,
+    sessionId,
+    deviceFingerprint,
   } = useScanStore();
 
   const handleImageCapture = useCallback(
@@ -84,7 +86,8 @@ export default function HomePage() {
           mimeTypes: currentImageFiles.map((f) => f.type),
           filenames: currentImageFiles.map((f) => f.name),
           language: selectedLanguage,
-          sessionId: useScanStore.getState().sessionId,
+          sessionId,
+          deviceFingerprint,
         }),
       });
 
@@ -130,6 +133,8 @@ export default function HomePage() {
     setCurrentResult,
     setError,
     setShowUpgradeDialog,
+    sessionId,
+    deviceFingerprint,
   ]);
 
   // Show fullscreen camera

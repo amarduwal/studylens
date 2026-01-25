@@ -284,6 +284,18 @@ export const sessions = pgTable("sessions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const guestUsage = pgTable("guest_usage", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: varchar("session_id", { length: 255 }).notNull(),
+  deviceFingerprint: varchar("device_fingerprint", { length: 255 }),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  date: date("date").notNull(),
+  scanCount: integer("scan_count").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const verificationTokens = pgTable(
   "verification_tokens",
   {
@@ -319,6 +331,8 @@ export const pricingPlans = pgTable("pricing_plans", {
   maxImagesPerScan: integer("max_images_per_scan").default(1),
   maxBookmarks: integer("max_bookmarks"),
   maxHistoryDays: integer("max_history_days"),
+  dailyFollowupLimit: integer("daily_followup_limit").default(5),
+  dailyPracticeLimit: integer("daily_practice_limit").default(5),
 
   // Features
   features: jsonb("features").default([]),
@@ -517,6 +531,10 @@ export const scans = pgTable("scans", {
   processingTimeMs: integer("processing_time_ms"),
   geminiModel: varchar("gemini_model", { length: 50 }),
   tokenCount: integer("token_count"),
+
+  // Tracking
+  deviceFingerprint: varchar("device_fingerprint", { length: 255 }),
+  ipAddress: varchar("ip_address", { length: 45 }),
 
   // Status
   status: varchar("status", { length: 20 }).default("completed"),
