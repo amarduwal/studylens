@@ -35,6 +35,7 @@ export async function GET() {
       data: {
         profile: {
           name: user.name || "",
+          avatarUrl: user.avatarUrl || "",
           username: user.username || "",
           bio: user.bio || "",
           dateOfBirth: user.dateOfBirth || "",

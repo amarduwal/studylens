@@ -33,6 +33,7 @@
     "drizzle-orm": "^0.45.1",
     "framer-motion": "^12.29.0",
     "html2canvas": "^1.4.1",
+    "image-size": "^2.0.2",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.562.0",
     "nanoid": "^5.1.6",
@@ -53,6 +54,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
+    "@types/image-size": "^0.8.0",
     "@types/next-pwa": "^5.6.9",
     "@types/node": "^20",
     "@types/nodemailer": "^7.0.5",
