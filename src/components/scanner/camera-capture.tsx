@@ -57,14 +57,37 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isCropping, setIsCropping] = useState(false);
   const [cropArea, setCropArea] = useState<CropArea>({
-    x: 0,
-    y: 0,
-    width: 100,
-    height: 100,
+    x: 10,
+    y: 10,
+    width: 80,
+    height: 80,
   });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [dragType, setDragType] = useState<'move' | 'resize' | null>(null);
+  const [dragStart, setDragStart] = useState({
+    x: 0,
+    y: 0,
+    cropX: 0,
+    cropY: 0,
+    cropWidth: 0,
+    cropHeight: 0,
+  });
+  const [dragType, setDragType] = useState<
+    'move' | 'nw' | 'ne' | 'sw' | 'se' | null
+  >(null);
+  const [containerRect, setContainerRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    const updateContainerRect = () => {
+      const container = document.querySelector('.crop-container');
+      if (container) {
+        setContainerRect(container.getBoundingClientRect());
+      }
+    };
+
+    updateContainerRect();
+    window.addEventListener('resize', updateContainerRect);
+    return () => window.removeEventListener('resize', updateContainerRect);
+  }, [isCropping]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -287,40 +310,105 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
 
   const handleCropMouseDown = (
     e: React.MouseEvent,
-    type: 'move' | 'resize'
+    type: 'move' | 'nw' | 'ne' | 'sw' | 'se'
   ) => {
     e.preventDefault();
     setIsDragging(true);
     setDragType(type);
-    setDragStart({ x: e.clientX, y: e.clientY });
+    setDragStart({
+      x: e.clientX,
+      y: e.clientY,
+      cropX: cropArea.x,
+      cropY: cropArea.y,
+      cropWidth: cropArea.width,
+      cropHeight: cropArea.height,
+    });
+    if (containerRect) {
+      setContainerRect(containerRect);
+    }
   };
 
   const handleCropMouseMove = useCallback(
     (e: MouseEvent) => {
-      if (!isDragging || !dragType) return;
+      if (!isDragging || !dragType || !containerRect) return;
 
-      const deltaX = ((e.clientX - dragStart.x) / window.innerWidth) * 100;
-      const deltaY = ((e.clientY - dragStart.y) / window.innerHeight) * 100;
+      const deltaX = ((e.clientX - dragStart.x) / containerRect.width) * 100;
+      const deltaY = ((e.clientY - dragStart.y) / containerRect.height) * 100;
 
       setCropArea((prev) => {
-        if (dragType === 'move') {
-          return {
-            ...prev,
-            x: Math.max(0, Math.min(100 - prev.width, prev.x + deltaX)),
-            y: Math.max(0, Math.min(100 - prev.height, prev.y + deltaY)),
-          };
-        } else {
-          return {
-            ...prev,
-            width: Math.max(20, Math.min(100 - prev.x, prev.width + deltaX)),
-            height: Math.max(20, Math.min(100 - prev.y, prev.height + deltaY)),
-          };
-        }
-      });
+        const newArea = { ...prev };
 
-      setDragStart({ x: e.clientX, y: e.clientY });
+        if (dragType === 'move') {
+          newArea.x = Math.max(
+            0,
+            Math.min(100 - prev.width, dragStart.cropX + deltaX)
+          );
+          newArea.y = Math.max(
+            0,
+            Math.min(100 - prev.height, dragStart.cropY + deltaY)
+          );
+        } else {
+          // Handle resize from different corners
+          const minSize = 10; // Minimum 10% of container
+
+          if (dragType.includes('n')) {
+            // North resize
+            const newHeight = Math.max(
+              minSize,
+              Math.min(dragStart.cropHeight - deltaY, 100 - newArea.y)
+            );
+            newArea.y = dragStart.cropY + deltaY;
+            newArea.height = newHeight;
+          }
+
+          if (dragType.includes('s')) {
+            // South resize
+            newArea.height = Math.max(
+              minSize,
+              Math.min(dragStart.cropHeight + deltaY, 100 - newArea.y)
+            );
+          }
+
+          if (dragType.includes('w')) {
+            // West resize
+            const newWidth = Math.max(
+              minSize,
+              Math.min(dragStart.cropWidth - deltaX, 100 - newArea.x)
+            );
+            newArea.x = dragStart.cropX + deltaX;
+            newArea.width = newWidth;
+          }
+
+          if (dragType.includes('e')) {
+            // East resize
+            newArea.width = Math.max(
+              minSize,
+              Math.min(dragStart.cropWidth + deltaX, 100 - newArea.x)
+            );
+          }
+
+          // Ensure aspect ratio if shift key is pressed
+          if (e.shiftKey) {
+            const aspectRatio = dragStart.cropWidth / dragStart.cropHeight;
+            if (dragType === 'se' || dragType === 'nw') {
+              newArea.width = newArea.height * aspectRatio;
+              if (dragType === 'nw') {
+                newArea.x =
+                  dragStart.cropX + (dragStart.cropWidth - newArea.width);
+              }
+            } else if (dragType === 'ne' || dragType === 'sw') {
+              newArea.width = newArea.height * aspectRatio;
+              if (dragType === 'ne') {
+                newArea.x = dragStart.cropX;
+              }
+            }
+          }
+        }
+
+        return newArea;
+      });
     },
-    [isDragging, dragType, dragStart]
+    [isDragging, dragType, dragStart, containerRect]
   );
 
   const handleCropMouseUp = useCallback(() => {
@@ -331,42 +419,88 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
   // Touch handlers for mobile crop
   const handleCropTouchStart = (
     e: React.TouchEvent,
-    type: 'move' | 'resize'
+    type: 'move' | 'nw' | 'ne' | 'sw' | 'se'
   ) => {
     e.preventDefault();
     const touch = e.touches[0];
     setIsDragging(true);
     setDragType(type);
-    setDragStart({ x: touch.clientX, y: touch.clientY });
+    setDragStart({
+      x: touch.clientX,
+      y: touch.clientY,
+      cropX: cropArea.x,
+      cropY: cropArea.y,
+      cropWidth: cropArea.width,
+      cropHeight: cropArea.height,
+    });
+    if (containerRect) {
+      setContainerRect(containerRect);
+    }
   };
 
   const handleCropTouchMove = useCallback(
     (e: TouchEvent) => {
-      if (!isDragging || !dragType) return;
+      if (!isDragging || !dragType || !containerRect) return;
 
       const touch = e.touches[0];
-      const deltaX = ((touch.clientX - dragStart.x) / window.innerWidth) * 100;
-      const deltaY = ((touch.clientY - dragStart.y) / window.innerHeight) * 100;
+      const deltaX =
+        ((touch.clientX - dragStart.x) / containerRect.width) * 100;
+      const deltaY =
+        ((touch.clientY - dragStart.y) / containerRect.height) * 100;
 
       setCropArea((prev) => {
-        if (dragType === 'move') {
-          return {
-            ...prev,
-            x: Math.max(0, Math.min(100 - prev.width, prev.x + deltaX)),
-            y: Math.max(0, Math.min(100 - prev.height, prev.y + deltaY)),
-          };
-        } else {
-          return {
-            ...prev,
-            width: Math.max(20, Math.min(100 - prev.x, prev.width + deltaX)),
-            height: Math.max(20, Math.min(100 - prev.y, prev.height + deltaY)),
-          };
-        }
-      });
+        const newArea = { ...prev };
 
-      setDragStart({ x: touch.clientX, y: touch.clientY });
+        if (dragType === 'move') {
+          newArea.x = Math.max(
+            0,
+            Math.min(100 - prev.width, dragStart.cropX + deltaX)
+          );
+          newArea.y = Math.max(
+            0,
+            Math.min(100 - prev.height, dragStart.cropY + deltaY)
+          );
+        } else {
+          // Handle resize from different corners (touch)
+          const minSize = 10;
+
+          if (dragType.includes('n')) {
+            const newHeight = Math.max(
+              minSize,
+              Math.min(dragStart.cropHeight - deltaY, 100 - newArea.y)
+            );
+            newArea.y = dragStart.cropY + deltaY;
+            newArea.height = newHeight;
+          }
+
+          if (dragType.includes('s')) {
+            newArea.height = Math.max(
+              minSize,
+              Math.min(dragStart.cropHeight + deltaY, 100 - newArea.y)
+            );
+          }
+
+          if (dragType.includes('w')) {
+            const newWidth = Math.max(
+              minSize,
+              Math.min(dragStart.cropWidth - deltaX, 100 - newArea.x)
+            );
+            newArea.x = dragStart.cropX + deltaX;
+            newArea.width = newWidth;
+          }
+
+          if (dragType.includes('e')) {
+            newArea.width = Math.max(
+              minSize,
+              Math.min(dragStart.cropWidth + deltaX, 100 - newArea.x)
+            );
+          }
+        }
+
+        return newArea;
+      });
     },
-    [isDragging, dragType, dragStart]
+    [isDragging, dragType, dragStart, containerRect]
   );
 
   const handleCropTouchEnd = useCallback(() => {
@@ -497,7 +631,14 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
         </div>
 
         {/* Image with crop overlay */}
-        <div className="relative h-full w-full flex items-center justify-center">
+        <div
+          className="relative h-full w-full flex items-center justify-center crop-container"
+          ref={(el) => {
+            if (el && !containerRect) {
+              setContainerRect(el.getBoundingClientRect());
+            }
+          }}
+        >
           <img
             src={capturedImage}
             alt="Captured"
@@ -541,7 +682,7 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
 
           {/* Crop selection box */}
           <div
-            className="absolute border-2 border-white cursor-move touch-none"
+            className="absolute border-2 border-white cursor-move touch-none select-none"
             style={{
               top: `${cropArea.y}%`,
               left: `${cropArea.x}%`,
@@ -552,35 +693,86 @@ export function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
             onTouchStart={(e) => handleCropTouchStart(e, 'move')}
           >
             {/* Grid lines */}
-            <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
+            <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
               {[...Array(9)].map((_, i) => (
                 <div key={i} className="border border-white/30" />
               ))}
             </div>
 
-            {/* Corner handles */}
-            {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map(
-              (corner) => (
-                <div
-                  key={corner}
-                  className={cn(
-                    'absolute w-6 h-6 bg-white rounded-full cursor-se-resize',
-                    corner === 'top-left' && '-top-3 -left-3',
-                    corner === 'top-right' && '-top-3 -right-3',
-                    corner === 'bottom-left' && '-bottom-3 -left-3',
-                    corner === 'bottom-right' && '-bottom-3 -right-3'
-                  )}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    handleCropMouseDown(e, 'resize');
-                  }}
-                  onTouchStart={(e) => {
-                    e.stopPropagation();
-                    handleCropTouchStart(e, 'resize');
-                  }}
-                />
-              )
-            )}
+            {/* Corner handles with directional arrows */}
+            {[
+              { position: 'top-left', type: 'nw' },
+              { position: 'top-right', type: 'ne' },
+              { position: 'bottom-left', type: 'sw' },
+              { position: 'bottom-right', type: 'se' },
+            ].map(({ position, type }) => (
+              <div
+                key={position}
+                className={cn(
+                  'absolute w-6 h-6 bg-white border border-gray-300 rounded-full cursor-se-resize flex items-center justify-center',
+                  position === 'top-left' && '-top-3 -left-3 cursor-nw-resize',
+                  position === 'top-right' &&
+                    '-top-3 -right-3 cursor-ne-resize',
+                  position === 'bottom-left' &&
+                    '-bottom-3 -left-3 cursor-sw-resize',
+                  position === 'bottom-right' &&
+                    '-bottom-3 -right-3 cursor-se-resize'
+                )}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  handleCropMouseDown(
+                    e,
+                    type as 'move' | 'nw' | 'ne' | 'sw' | 'se'
+                  );
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  handleCropTouchStart(
+                    e,
+                    type as 'move' | 'nw' | 'ne' | 'sw' | 'se'
+                  );
+                }}
+              >
+                <div className="w-3 h-3 bg-blue-500 rounded-full" />
+              </div>
+            ))}
+
+            {/* Edge handles for better mobile interaction */}
+            {[
+              { position: 'top', type: 'n' },
+              { position: 'bottom', type: 's' },
+              { position: 'left', type: 'w' },
+              { position: 'right', type: 'e' },
+            ].map(({ position, type }) => (
+              <div
+                key={position}
+                className={cn(
+                  'absolute bg-transparent',
+                  position === 'top' &&
+                    'top-0 left-0 right-0 h-6 -translate-y-3 cursor-n-resize',
+                  position === 'bottom' &&
+                    'bottom-0 left-0 right-0 h-6 translate-y-3 cursor-s-resize',
+                  position === 'left' &&
+                    'top-0 left-0 bottom-0 w-6 -translate-x-3 cursor-w-resize',
+                  position === 'right' &&
+                    'top-0 right-0 bottom-0 w-6 translate-x-3 cursor-e-resize'
+                )}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  handleCropMouseDown(
+                    e,
+                    type as 'move' | 'nw' | 'ne' | 'sw' | 'se'
+                  );
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  handleCropTouchStart(
+                    e,
+                    type as 'move' | 'nw' | 'ne' | 'sw' | 'se'
+                  );
+                }}
+              />
+            ))}
           </div>
         </div>
 

@@ -301,3 +301,18 @@ body {
 .avatar-loading {
   animation: pulse-avatar 2s ease-in-out infinite;
 }
+
+/* Camera smooth cursor */
+@keyframes handle-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.crop-handle:hover {
+  animation: handle-pulse 0.5s ease-in-out;
+}
