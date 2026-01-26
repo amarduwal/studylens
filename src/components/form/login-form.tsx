@@ -72,10 +72,11 @@ export default function LoginForm() {
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
+    setError('');
     try {
-      await signIn('google', { callbackUrl });
+      await signIn('google', { callbackUrl, redirect: true });
     } catch (err) {
-      setError('Failed to sign in with Google');
+      setError('Failed to sign in with Google. Please try again.');
       console.log('Failed to sign in with Google', err);
       setIsGoogleLoading(false);
     }

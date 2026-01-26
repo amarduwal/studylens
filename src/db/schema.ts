@@ -995,3 +995,18 @@ export type NewSubject = typeof subjects.$inferInsert;
 
 export type Topic = typeof topics.$inferSelect;
 export type NewTopic = typeof topics.$inferInsert;
+
+export type GuestUsage = typeof guestUsage.$inferSelect;
+export type NewGuestUsage = typeof guestUsage.$inferInsert;
+
+export type VerificationToken = typeof verificationTokens.$inferSelect;
+export type NewVerificationToken = typeof verificationTokens.$inferInsert;
+
+export type BlockedEmailDomain = typeof blockedEmailDomains.$inferSelect;
+export type NewBlockedEmailDomain = typeof blockedEmailDomains.$inferInsert;
+
+export type TempEmailAttempt = typeof tempEmailAttempts.$inferSelect;
+export type NewTempEmailAttempt = typeof tempEmailAttempts.$inferInsert;
+
+export type TrustedEmailDomain = typeof trustedEmailDomains.$inferSelect;
+export type NewTrustedEmailDomain = typeof trustedEmailDomains.$inferInsert;

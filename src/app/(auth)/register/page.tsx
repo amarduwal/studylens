@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +17,8 @@ import Image from 'next/image';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') || '/';
 
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -90,10 +92,12 @@ export default function RegisterPage() {
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
+    setError('');
     try {
-      await signIn('google', { callbackUrl: '/' });
+      await signIn('google', { callbackUrl, redirect: true });
     } catch (err) {
-      setError('Failed to sign in with Google');
+      setError('Failed to sign in with Google. Please try again.');
+      console.log('Failed to sign in with Google', err);
       setIsGoogleLoading(false);
     }
   };
