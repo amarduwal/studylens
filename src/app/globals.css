@@ -277,3 +277,27 @@ body {
   outline-offset: 2px;
   border-radius: var(--radius);
 }
+
+/* Add smooth transitions for avatar */
+.avatar-upload {
+  transition: all 0.3s ease;
+}
+
+.avatar-upload:hover {
+  transform: translateY(-2px);
+}
+
+/* Loading animation */
+@keyframes pulse-avatar {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.avatar-loading {
+  animation: pulse-avatar 2s ease-in-out infinite;
+}

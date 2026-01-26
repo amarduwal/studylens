@@ -5,8 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { User, LogIn, Loader2 } from 'lucide-react';
 import { useSession, signIn } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import Image from 'next/image';
 import { formatDate, formatHour, StatItem } from '@/components/common/helper';
+import AvatarUpload from '@/components/profile/avatar-upload';
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
@@ -81,31 +81,43 @@ export default function ProfilePage() {
           <div className="space-y-6">
             {/* Header */}
             <div className="text-center">
-              <div className="flex items-center gap-2 mr-auto">
-                <div className="relative w-20 h-20 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center mx-auto mb-4">
-                  {userInfo?.avatarUrl ? (
-                    <Image
-                      src={userInfo.avatarUrl}
-                      alt="Profile"
-                      fill
-                      className="object-contain"
-                      unoptimized
-                    />
-                  ) : (
-                    <User className="h-10 w-10 text-[hsl(var(--primary))]" />
-                  )}
-                </div>
+              <div
+                className={`${userInfo ? 'flex flex-col items-center' : ''}`}
+              >
+                {userInfo ? (
+                  <AvatarUpload
+                    currentAvatarUrl={userInfo?.avatarUrl}
+                    userName={userInfo?.name || session?.user?.name || 'User'}
+                    size="md"
+                    editable={!isGuest}
+                    className="mb-6"
+                    onAvatarChange={(newAvatarUrl) => {
+                      setUserInfo((prev) =>
+                        prev
+                          ? { ...prev, avatarUrl: newAvatarUrl || undefined }
+                          : null
+                      );
+                    }}
+                  />
+                ) : (
+                  <div className="flex items-center gap-2 mr-auto">
+                    <div className="relative w-20 h-20 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center mx-auto mb-4">
+                      <User className="h-10 w-10 text-[hsl(var(--primary))]" />
+                    </div>
+                  </div>
+                )}
+
+                <h1 className="text-2xl font-bold mb-1">
+                  {isGuest
+                    ? 'Guest User'
+                    : userInfo?.name || session?.user?.name || 'User'}
+                </h1>
+                <p className="text-[hsl(var(--muted-foreground))]">
+                  {isGuest
+                    ? 'Sign in to sync your data across devices'
+                    : userInfo?.email || session?.user?.email}
+                </p>
               </div>
-              <h1 className="text-2xl font-bold mb-1">
-                {isGuest
-                  ? 'Guest User'
-                  : userInfo?.name || session?.user?.name || 'User'}
-              </h1>
-              <p className="text-[hsl(var(--muted-foreground))]">
-                {isGuest
-                  ? 'Sign in to sync your data across devices'
-                  : userInfo?.email || session?.user?.email}
-              </p>
               {isGuest && (
                 <Card className="mt-6">
                   <CardContent className="p-6 text-center">

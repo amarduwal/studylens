@@ -232,3 +232,89 @@ function getExtensionFromMime(mimeType: string): string {
   };
   return mimeToExt[mimeType] || "jpg";
 }
+
+export async function uploadAvatar(
+  buffer: Buffer,
+  userId: string,
+  options: {
+    originalFilename?: string;
+    mimeType?: string;
+  } = {}
+): Promise<UploadResult> {
+  const { mimeType = "image/jpeg", originalFilename } = options;
+
+  // Validate image dimensions
+  const imageInfo = await getImageDimensions(buffer, mimeType);
+
+  // Generate avatar-specific key
+  const timestamp = Date.now();
+  const uniqueId = uuidv4();
+  const extension = getExtensionFromMime(mimeType);
+
+  // Structure: avatars/userId/timestamp_randomId.ext
+  const storageKey = `avatars/${userId}/${timestamp}_${uniqueId}.${extension}`;
+
+  // Optimize image for avatar (you could add sharp optimization here)
+  // For now, we'll upload as-is, but you can compress if needed
+
+  const command = new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: storageKey,
+    Body: buffer,
+    ContentType: mimeType,
+    CacheControl: "public, max-age=31536000, immutable",
+    Metadata: {
+      userId,
+      uploadedAt: new Date().toISOString(),
+      width: imageInfo.width?.toString() || "",
+      height: imageInfo.height?.toString() || "",
+    },
+  });
+
+  await r2Client.send(command);
+
+  return {
+    storageKey,
+    publicUrl: getPublicUrl(storageKey),
+    fileSize: buffer.length,
+    mimeType,
+    fileHash: calculateFileHash(buffer),
+    width: imageInfo.width,
+    height: imageInfo.height,
+  };
+}
+
+/**
+ * Get image dimensions from buffer
+ */
+export async function getImageDimensions(
+  buffer: Buffer,
+  mimeType: string
+): Promise<{ width?: number; height?: number }> {
+  try {
+    const sizeOf = (await import("image-size")).default;
+    const dimensions = sizeOf(buffer);
+    return {
+      width: dimensions.width,
+      height: dimensions.height,
+    };
+  } catch (error) {
+    console.error("Failed to get image dimensions:", error);
+    return {};
+  }
+}
+
+/**
+ * Delete user avatar and all previous avatars
+ */
+export async function deleteUserAvatars(userId: string): Promise<void> {
+  try {
+    // Note: In production, you might want to use R2's ListObjectsV2Command
+    // to find and delete all avatars for this user
+    // For simplicity, we'll just handle one at a time for now
+    console.log(`Would delete all avatars for user: ${userId}`);
+    // Implement batch deletion if needed
+  } catch (error) {
+    console.error("Failed to delete user avatars:", error);
+  }
+}

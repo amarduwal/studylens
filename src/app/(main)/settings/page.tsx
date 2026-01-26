@@ -24,6 +24,7 @@ import {
   Save,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import AvatarUpload from '@/components/profile/avatar-upload';
 
 type SettingsTab =
   | 'profile'
@@ -76,6 +77,12 @@ export default function SettingsPage() {
     educationLevel: 'high',
   });
 
+  const [userInfo, setUserInfo] = useState<{
+    name?: string;
+    email?: string;
+    avatarUrl?: string;
+  } | null>(null);
+
   const [preferences, setPreferences] = useState<PreferencesData>({
     emailNotifications: true,
     pushNotifications: true,
@@ -110,7 +117,14 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings');
       const data = await res.json();
       if (data.success) {
-        if (data.data.profile) setProfile(data.data.profile);
+        if (data.data.profile) {
+          setProfile(data.data.profile);
+          setUserInfo({
+            name: data.data.profile.name,
+            email: data.data.profile.email,
+            avatarUrl: data.data.profile.avatarUrl,
+          });
+        }
         if (data.data.preferences) setPreferences(data.data.preferences);
         if (data.data.languageCode) setSelectedLanguage(data.data.languageCode);
       }
@@ -156,6 +170,8 @@ export default function SettingsPage() {
     { id: 'privacy' as const, label: 'Privacy', icon: Shield },
   ];
 
+  const isGuest = status === 'unauthenticated';
+
   if (status === 'loading' || isLoading) {
     return (
       <div className="flex min-h-screen flex-col bg-[hsl(var(--background))]">
@@ -191,6 +207,40 @@ export default function SettingsPage() {
                 Manage your account preferences
               </p>
             </div>
+          </div>
+
+          <div className={`${profile ? 'flex flex-col items-center' : ''}`}>
+            {userInfo ? (
+              <AvatarUpload
+                currentAvatarUrl={userInfo?.avatarUrl}
+                userName={userInfo?.name || 'User'}
+                size="md"
+                editable={!isGuest}
+                className="mb-6"
+                onAvatarChange={(newAvatarUrl) => {
+                  setUserInfo((prev) =>
+                    prev
+                      ? { ...prev, avatarUrl: newAvatarUrl || undefined }
+                      : null
+                  );
+                }}
+              />
+            ) : (
+              <div className="flex items-center gap-2 mr-auto">
+                <div className="relative w-20 h-20 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center mx-auto mb-4">
+                  <User className="h-10 w-10 text-[hsl(var(--primary))]" />
+                </div>
+              </div>
+            )}
+
+            <h1 className="text-2xl font-bold mb-1">
+              {isGuest ? 'Guest User' : userInfo?.name || 'User'}
+            </h1>
+            <p className="text-[hsl(var(--muted-foreground))]">
+              {isGuest
+                ? 'Sign in to sync your data across devices'
+                : userInfo?.email}
+            </p>
           </div>
 
           {/* Tab Navigation */}
