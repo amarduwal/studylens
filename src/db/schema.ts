@@ -710,7 +710,53 @@ export const studyStreaks = pgTable("study_streaks", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ============ BLOCKED EMAIL DOMAINS & TEMP EMAIL ATTEMPTS ============
+
+export const blockedEmailDomains = pgTable("blocked_email_domains", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  domain: varchar("domain", { length: 255 }).unique().notNull(),
+  category: varchar("category", { length: 50 }).default("temporary"),
+  reason: text("reason"),
+  source: varchar("source", { length: 100 }).default("manual"),
+  confidence: integer("confidence").default(100),
+  hitCount: integer("hit_count").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+});
+
+export const tempEmailAttempts = pgTable("temp_email_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: varchar("email", { length: 255 }).notNull(),
+  domain: varchar("domain", { length: 255 }).notNull(),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  wasBlocked: boolean("was_blocked").default(true),
+  matchedRules: text("matched_rules").array(),
+  detectedBy: varchar("detected_by", { length: 50 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const trustedEmailDomains = pgTable("trusted_email_domains", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  domain: varchar("domain", { length: 255 }).unique().notNull(),
+  providerName: varchar("provider_name", { length: 100 }),
+  providerType: varchar("provider_type", { length: 50 }).default("personal"),
+  countryCode: varchar("country_code", { length: 2 }),
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 // ============ RELATIONS ============
+
+export const blockedEmailDomainsRelations = relations(blockedEmailDomains, ({ one }) => ({
+  creator: one(users, {
+    fields: [blockedEmailDomains.createdBy],
+    references: [users.id],
+  }),
+}));
 
 export const languagesRelations = relations(languages, ({ many }) => ({
   users: many(users),
