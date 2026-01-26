@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/db";
-import { users, userPreferences, subscriptions, pricingPlans, studyStreaks, emailVerificationCodes, tempEmailAttempts } from "@/db/schema";
+import { users, userPreferences, subscriptions, pricingPlans, emailVerificationCodes, tempEmailAttempts } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { generateVerificationCode, getCodeExpiryTime, sendVerificationEmail } from "@/lib/email";
@@ -160,15 +160,9 @@ export async function POST(request: NextRequest) {
       .returning();
 
     // 5. Create related records
-    await Promise.all([
-      db.insert(userPreferences).values({
-        userId: newUser.id,
-      }).onConflictDoNothing(),
-
-      db.insert(studyStreaks).values({
-        userId: newUser.id
-      }).onConflictDoNothing(),
-    ]);
+    await db.insert(userPreferences).values({
+      userId: newUser.id,
+    }).onConflictDoNothing();
 
     // 6. Assign free plan
     const freePlan = await db.query.pricingPlans.findFirst({

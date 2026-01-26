@@ -3,7 +3,7 @@ import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/db";
-import { users, userPreferences, subscriptions, pricingPlans, studyStreaks } from "@/db/schema";
+import { users, userPreferences, subscriptions, pricingPlans } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { CustomAdapter } from "./custom-adapter";
 
@@ -137,14 +137,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // Create default preferences
         await db.insert(userPreferences).values({
           userId: user.id,
-        }).onConflictDoNothing();
-
-        // Create study streak record
-        await db.insert(studyStreaks).values({
-          userId: user.id,
-          currentStreak: 0,
-          longestStreak: 0,
-          totalActiveDays: 0,
         }).onConflictDoNothing();
 
         // Assign free plan
