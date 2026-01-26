@@ -1,15 +1,14 @@
 import NextAuth from "next-auth";
-import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/db";
 import { users, userPreferences, subscriptions, pricingPlans, studyStreaks } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { createSession } from "@/lib/session-utils";
+import { CustomAdapter } from "./custom-adapter";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  adapter: DrizzleAdapter(db),
+  adapter: CustomAdapter(),
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -19,6 +18,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
     Credentials({
       name: "credentials",
@@ -131,7 +137,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // Create default preferences
         await db.insert(userPreferences).values({
           userId: user.id,
-        });
+        }).onConflictDoNothing();
 
         // Create study streak record
         await db.insert(studyStreaks).values({
@@ -139,7 +145,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           currentStreak: 0,
           longestStreak: 0,
           totalActiveDays: 0,
-        });
+        }).onConflictDoNothing();
 
         // Assign free plan
         const freePlan = await db.query.pricingPlans.findFirst({

@@ -12,10 +12,10 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card';
-import { Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Mail, Lock, Eye, EyeOff, User, Check } from 'lucide-react';
 import Image from 'next/image';
 
-export default function LoginForm() {
+export default function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/';
@@ -24,10 +24,13 @@ export default function LoginForm() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
   const [formData, setFormData] = useState({
+    name: '',
     email: '',
     password: '',
+    agreeToTerms: true,
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,24 +47,41 @@ export default function LoginForm() {
     setError('');
 
     try {
-      const result = await signIn('credentials', {
-        email: formData.email,
-        password: formData.password,
-        redirect: false,
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
       });
 
-      if (result?.error) {
-        // Check if unverified email
-        if (result.error.startsWith('UNVERIFIED_EMAIL:')) {
-          const userId = result.error.split(':')[1];
-          router.push(`/verify?userId=${userId}&email=${formData.email}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        // Handle unverified existing user
+        if (data.code === 'UNVERIFIED_EMAIL') {
+          router.push(`/verify?userId=${data.userId}&email=${formData.email}`);
           return;
         }
-        setError('Invalid email or password');
-      } else {
-        router.push(callbackUrl);
-        router.refresh();
+        setError(data.error || 'Failed to create account');
+        return;
       }
+
+      setSuccess(true);
+
+      // Redirect to verification page
+      router.push(`/verify?userId=${data.userId}&email=${formData.email}`);
+
+      // Uncomment for Auto signin after registration
+      // Auto sign in after registration
+      // const signInResult = await signIn('credentials', {
+      //   email: formData.email,
+      //   password: formData.password,
+      //   redirect: false,
+      // });
+
+      // if (signInResult?.ok) {
+      //   router.push('/');
+      //   router.refresh();
+      // }
     } catch (err) {
       setError('Something went wrong. Please try again.');
       console.log('Something went wrong. Please try again.', err);
@@ -81,6 +101,10 @@ export default function LoginForm() {
       setIsGoogleLoading(false);
     }
   };
+
+  const passwordRequirements = [
+    { met: formData.password.length >= 8, text: 'At least 8 characters' },
+  ];
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))] px-4 py-12">
@@ -106,17 +130,17 @@ export default function LoginForm() {
             </span>
           </Link>
           <p className="mt-2 text-[hsl(var(--muted-foreground))]">
-            Sign in to sync your learning across devices
+            Create an account to unlock more features
           </p>
         </div>
 
         <Card>
           <CardHeader className="text-center">
-            <CardTitle>Welcome Back</CardTitle>
-            <CardDescription>Sign in to your account</CardDescription>
+            <CardTitle>Create Account</CardTitle>
+            <CardDescription>Start your learning journey today</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Google Sign In */}
+            {/* Google Sign Up */}
             <Button
               variant="outline"
               className="w-full h-12"
@@ -160,6 +184,13 @@ export default function LoginForm() {
               </div>
             </div>
 
+            {/* Success Message */}
+            {success && (
+              <div className="rounded-lg bg-green-500/10 p-3 text-sm text-green-600 text-center">
+                Account created! Verify your account...
+              </div>
+            )}
+
             {/* Error Message */}
             {error && (
               <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500 text-center">
@@ -167,8 +198,24 @@ export default function LoginForm() {
               </div>
             )}
 
-            {/* Email Form */}
+            {/* Registration Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    placeholder="Your name"
+                    required
+                    className="w-full h-12 pl-10 pr-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] focus:outline-none"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="text-sm font-medium mb-1.5 block">
                   Email
@@ -188,15 +235,9 @@ export default function LoginForm() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium">Password</label>
-                  <Link
-                    href="/forgot-password"
-                    className="text-sm text-[hsl(var(--primary))] hover:underline"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
+                <label className="text-sm font-medium mb-1.5 block">
+                  Password
+                </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[hsl(var(--muted-foreground))]" />
                   <input
@@ -220,7 +261,31 @@ export default function LoginForm() {
                     )}
                   </button>
                 </div>
+
+                {/* Password Requirements */}
+                <div className="mt-2 space-y-1">
+                  {passwordRequirements.map((req, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-2 text-xs ${
+                        req.met
+                          ? 'text-green-600'
+                          : 'text-[hsl(var(--muted-foreground))]'
+                      }`}
+                    >
+                      <Check
+                        className={`h-3 w-3 ${
+                          req.met ? 'opacity-100' : 'opacity-30'
+                        }`}
+                      />
+                      {req.text}
+                    </div>
+                  ))}
+                </div>
               </div>
+
+              {/* Hidden agreeToTerms field */}
+              <input type="hidden" name="agreeToTerms" value="true" />
 
               <Button
                 type="submit"
@@ -230,18 +295,36 @@ export default function LoginForm() {
                 {isLoading ? (
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 ) : null}
-                Sign In
+                Create Account
               </Button>
             </form>
 
-            {/* Register Link */}
+            {/* Login Link */}
             <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
-              Don&apos;t have an account?{' '}
+              Already have an account?{' '}
               <Link
-                href="/register"
+                href="/login"
                 className="font-medium text-[hsl(var(--primary))] hover:underline"
               >
-                Sign up
+                Sign in
+              </Link>
+            </p>
+
+            {/* Terms */}
+            <p className="text-center text-xs text-[hsl(var(--muted-foreground))]">
+              By creating an account, you agree to our{' '}
+              <Link
+                href="/terms"
+                className="underline hover:text-[hsl(var(--foreground))]"
+              >
+                Terms of Service
+              </Link>{' '}
+              and{' '}
+              <Link
+                href="/privacy"
+                className="underline hover:text-[hsl(var(--foreground))]"
+              >
+                Privacy Policy
               </Link>
             </p>
           </CardContent>
@@ -253,7 +336,7 @@ export default function LoginForm() {
             href="/"
             className="text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
           >
-            ← Back to Home
+            ← Back to home
           </Link>
         </p>
       </div>
