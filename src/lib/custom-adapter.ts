@@ -109,7 +109,7 @@ export function CustomAdapter(): Adapter {
         scope: data.scope,
         idToken: data.id_token,
         sessionState: data.session_state,
-      });
+      } as any); // Type casting as Drizzle doesn't infer types here
     },
 
     async unlinkAccount({ providerAccountId, provider }) {
