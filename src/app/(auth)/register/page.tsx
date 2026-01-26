@@ -28,6 +28,7 @@ export default function RegisterPage() {
     name: '',
     email: '',
     password: '',
+    agreeToTerms: true,
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -278,6 +279,9 @@ export default function RegisterPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Hidden agreeToTerms field */}
+              <input type="hidden" name="agreeToTerms" value="true" />
 
               <Button
                 type="submit"
