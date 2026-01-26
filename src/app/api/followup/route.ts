@@ -3,8 +3,8 @@ import { handleFollowUp } from "@/lib/gemini";
 import { SupportedLanguage, FollowUpResponse, ConversationMessage } from "@/types";
 import { z } from "zod";
 import { v4 as uuidv4 } from 'uuid';
-import { conversations, db } from "@/db";
-import { eq, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { checkFollowupLimit } from "@/lib/usage";
 
@@ -55,7 +55,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
     const trackingSessionId = trackingUserId ? null : sessionId;
 
     // Check follow-up limit
-    // Check follow-up limit
     const limitCheck = await checkFollowupLimit(
       trackingUserId,
       trackingSessionId || sessionId,
@@ -84,7 +83,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
       );
     }
 
-
     // Convert to proper ConversationMessage format
     const history: ConversationMessage[] = conversationHistory.map((msg) => ({
       ...msg,
@@ -99,32 +97,43 @@ export async function POST(request: NextRequest): Promise<NextResponse<FollowUpR
       language as SupportedLanguage
     );
 
-    // Update conversation and usage stats
-    const [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.scanId, scanId))
-      .limit(1);
+    // Get or create conversation using the PostgreSQL function
+    const conversationResult = await db.execute(sql`
+      SELECT fn_get_or_create_conversation(
+        ${scanId}::UUID,
+        ${trackingUserId}::UUID,
+        ${trackingSessionId}::VARCHAR
+      ) as conversation_id
+    `);
 
-    if (conversation) {
-      await db
-        .update(conversations)
-        .set({
-          messageCount: sql`${conversations.messageCount} + 1`, // Increment of User + Assistant(2 for both 1 for user)
-          lastMessageAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(conversations.id, conversation.id));
-    } else {
-      // Create conversation if it doesn't exist
-      await db.insert(conversations).values({
-        scanId,
-        userId: trackingUserId,
-        sessionId: trackingSessionId || "",
-        messageCount: 1,
-        lastMessageAt: new Date(),
-      }).returning();
-    }
+    const conversationId = (conversationResult.rows[0] as any).conversation_id;
+
+    // Store user message using PostgreSQL function
+    await db.execute(sql`
+      SELECT fn_add_message(
+        ${conversationId}::UUID,
+        'user'::message_role,
+        ${question}::TEXT,
+        NULL::VARCHAR, -- model_used
+        'sent'::VARCHAR, -- status
+        NULL::INTEGER, -- token_count
+        NULL::INTEGER -- processing_time_ms
+      )
+    `);
+
+    // Store assistant message using PostgreSQL function
+    await db.execute(sql`
+      SELECT fn_add_message(
+        ${conversationId}::UUID,
+        'assistant'::message_role,
+        ${answer}::TEXT,
+        ${process.env.GOOGLE_AI_MODEL}::VARCHAR, -- model_used
+        'sent'::VARCHAR, -- status
+        NULL::INTEGER, -- token_count
+        NULL::INTEGER -- processing_time_ms
+      )
+    `);
+
 
     return NextResponse.json({
       success: true,

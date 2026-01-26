@@ -1,23 +1,45 @@
 import { SupportedLanguage } from "@/types";
 
-// export const SYSTEM_PROMPT = `You are StudyLens, an expert educational AI tutor. Your role is to help students understand educational content by analyzing images of textbooks, handwritten notes, diagrams, and problems.
+export const SYSTEM_PROMPT = `You are StudyLens, an expert educational AI tutor. Your role is to help students understand educational content by analyzing images of textbooks, handwritten notes, diagrams, and problems.
 
-//   CORE PRINCIPLES:
-//   1. Be encouraging and supportive
-//   2. Explain concepts clearly and simply
-//   3. Use step-by-step breakdowns
-//   4. Connect to real-world examples
-//   5. Never just give answers - teach the "why"
+  CORE PRINCIPLES:
+  1. Be encouraging and supportive
+  2. Explain concepts clearly and simply
+  3. Use step-by-step breakdowns
+  4. Connect to real-world examples
+  5. Never just give answers - teach the "why"
 
-//   RESPONSE GUIDELINES:
-//   - Always be accurate and pedagogically sound
-//   - Adapt your language to the student's level
-//   - Use analogies and examples for complex concepts
-//   - Highlight common mistakes to avoid
-//   - Encourage further exploration`;
-const SYSTEM_PROMPT = `You are an expert educational AI assistant that analyzes images of educational content.
-You provide detailed, accurate explanations tailored to the student's level.
-You must ALWAYS respond with valid JSON only - no markdown, no code blocks, no additional text.`;
+  RESPONSE GUIDELINES:
+  - Always be accurate and pedagogically sound
+  - Adapt your language to the student's level
+  - Use analogies and examples for complex concepts
+  - Highlight common mistakes to avoid
+  - Encourage further exploration`;
+// const SYSTEM_PROMPT = `You are an expert educational AI assistant that analyzes images of educational content.
+// You provide detailed, accurate explanations tailored to the student's level.
+// You must ALWAYS respond with valid JSON only - no markdown, no code blocks, no additional text.`;
+
+export const CHAT_SYSTEM_PROMPT = `You are a friendly, patient, and knowledgeable AI tutor named StudyLens Assistant.
+
+  YOUR PERSONALITY:
+  - Patient and encouraging, never condescending
+  - Explain concepts in multiple ways if needed
+  - Use analogies and real-world examples
+  - Celebrate student progress and curiosity
+
+  YOUR CAPABILITIES:
+  - Answer follow-up questions about educational content
+  - Provide additional examples and practice problems
+  - Clarify confusing concepts with simpler explanations
+  - Connect topics to real-world applications
+  - Guide students through problem-solving step by step
+
+  RESPONSE STYLE:
+  - Use clear, conversational language
+  - Format responses with markdown for readability (headers, bold, lists, code blocks for math)
+  - Keep responses focused and appropriately detailed
+  - Ask clarifying questions if the student's question is unclear`;
+
 
 // export function getAnalysisPrompt(language: SupportedLanguage): string {
 //   const languageInstruction = language !== "en"
@@ -154,36 +176,149 @@ export function getAnalysisPrompt(language: SupportedLanguage): string {
 }
 
 
+// export function getFollowUpPrompt(
+//   originalContext: string,
+//   question: string,
+//   conversationHistory: { role: string; content: string }[],
+//   language: SupportedLanguage
+// ): string {
+//   const languageInstruction = language !== "en"
+//     ? `Respond in ${getLanguageName(language)} language.`
+//     : "";
+
+//   const historyText = conversationHistory
+//     .map((msg) => `${msg.role === "user" ? "Student" : "Tutor"}: ${msg.content}`)
+//     .join("\n");
+
+//   return `${SYSTEM_PROMPT}
+
+//     ${languageInstruction}
+
+//     ORIGINAL CONTENT CONTEXT:
+//     ${originalContext}
+
+//     CONVERSATION HISTORY:
+//     ${historyText}
+
+//     STUDENT'S NEW QUESTION:
+//     ${question}
+
+//     Provide a helpful, educational response to the student's question. Be conversational but informative. If they're asking for clarification, rephrase your explanation differently. If they want more detail, go deeper. If they seem confused, simplify.
+
+//     Respond in plain text (not JSON).`;
+// }
+
+/**
+ * Generates a follow-up prompt for chat conversations
+ * GUARANTEED to request plain text/markdown output (NOT JSON)
+ */
 export function getFollowUpPrompt(
   originalContext: string,
   question: string,
   conversationHistory: { role: string; content: string }[],
   language: SupportedLanguage
 ): string {
+  const languageName = getLanguageName(language);
+  const formattedHistory = formatConversationHistory(conversationHistory);
+  const truncatedContext = truncateContext(originalContext);
+
   const languageInstruction = language !== "en"
-    ? `Respond in ${getLanguageName(language)} language.`
+    ? `
+🌐 LANGUAGE REQUIREMENT:
+Respond entirely in ${languageName}. All explanations, examples, and text must be in ${languageName}.
+`
     : "";
 
-  const historyText = conversationHistory
-    .map((msg) => `${msg.role === "user" ? "Student" : "Tutor"}: ${msg.content}`)
-    .join("\n");
+  return `${CHAT_SYSTEM_PROMPT}
 
-  return `${SYSTEM_PROMPT}
+    ═══════════════════════════════════════════════════════════════
+    📚 ORIGINAL CONTENT (from the scanned image)
+    ═══════════════════════════════════════════════════════════════
+    ${truncatedContext}
 
-    ${languageInstruction}
+    ═══════════════════════════════════════════════════════════════
+    💬 CONVERSATION HISTORY
+    ═══════════════════════════════════════════════════════════════
+    ${formattedHistory}
 
-    ORIGINAL CONTENT CONTEXT:
-    ${originalContext}
-
-    CONVERSATION HISTORY:
-    ${historyText}
-
-    STUDENT'S NEW QUESTION:
+    ═══════════════════════════════════════════════════════════════
+    ❓ STUDENT'S CURRENT QUESTION
+    ═══════════════════════════════════════════════════════════════
     ${question}
 
-    Provide a helpful, educational response to the student's question. Be conversational but informative. If they're asking for clarification, rephrase your explanation differently. If they want more detail, go deeper. If they seem confused, simplify.
+    ═══════════════════════════════════════════════════════════════
+    📝 YOUR TASK
+    ═══════════════════════════════════════════════════════════════
+    Answer the student's question based on the context and conversation history.
+    ${languageInstruction}
 
-    Respond in plain text (not JSON).`;
+    RESPONSE GUIDELINES:
+    1. Address the student's question directly and thoroughly
+    2. If they're confused, try explaining differently with an analogy
+    3. If they want more depth, provide additional details and examples
+    4. If they're asking about something outside the context, politely guide them back or provide general help
+    5. Use encouraging language to motivate learning
+
+    FORMATTING RULES:
+    • Use **bold** for key terms and important concepts
+    • Use bullet points or numbered lists for steps or multiple items
+    • Use \`code blocks\` or LaTeX for mathematical expressions
+    • Use > blockquotes for important notes or tips
+    • Keep paragraphs short and readable
+
+    ══════════════════════════════════════════════════════════════════
+    ⚠️ CRITICAL OUTPUT FORMAT REQUIREMENTS ⚠️
+    ══════════════════════════════════════════════════════════════════
+    • OUTPUT TYPE: Plain text with Markdown formatting
+    • DO NOT output JSON, code blocks containing JSON, or any structured data format
+    • DO NOT wrap your response in \`\`\`json or any code fence
+    • DO NOT start your response with { or [
+    • DO NOT include key-value pairs like "answer": or "response":
+    • JUST write a natural, conversational response as a tutor would speak
+
+    ✅ CORRECT FORMAT EXAMPLE:
+    Great question! Let me explain this concept differently...
+
+    The key idea here is **conservation of energy**. Think of it like...
+
+    ❌ INCORRECT FORMAT (DO NOT DO THIS):
+    {
+      "response": "Great question...",
+      "explanation": "..."
+    }
+
+    Now, please respond to the student's question in a helpful, conversational manner:`;
+}
+
+/**
+ * Formats conversation history for the prompt
+ */
+function formatConversationHistory(
+  conversationHistory: { role: string; content: string }[]
+): string {
+  if (!conversationHistory || conversationHistory.length === 0) {
+    return "No previous conversation.";
+  }
+
+  return conversationHistory
+    .map((msg, index) => {
+      const role = msg.role === "user" ? "🧑 Student" : "🤖 Tutor";
+      // Truncate very long messages in history
+      const content = msg.content.length > 500
+        ? msg.content.substring(0, 1000) + "..."
+        : msg.content;
+      return `[${index + 1}] ${role}: ${content}`;
+    })
+    .join("\n\n");
+}
+
+/**
+ * Truncates context to prevent token overflow
+ */
+function truncateContext(context: string, maxLength: number = 3000): string {
+  if (!context) return "No context provided.";
+  if (context.length <= maxLength) return context;
+  return context.substring(0, maxLength) + "\n\n[... content truncated for brevity ...]";
 }
 
 export function getSimplifyPrompt(

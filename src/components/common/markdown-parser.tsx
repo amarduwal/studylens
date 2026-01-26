@@ -17,14 +17,15 @@ export function renderMarkdown(text: string): React.ReactNode {
     if (listItems.length > 0) {
       const ListTag = listType === 'ol' ? 'ol' : 'ul';
       elements.push(
-        <ListTag
-          key={`list-${index}`}
-          className={`my-4 space-y-2 ${
-            listType === 'ol' ? 'list-decimal' : 'list-disc'
-          } ml-6`}
-        >
-          {listItems}
-        </ListTag>
+        <div key={`list-${index}`} className="my-4">
+          <ListTag
+            className={`my-4 space-y-2 ${
+              listType === 'ol' ? 'list-decimal' : 'list-disc'
+            } ml-6`}
+          >
+            {listItems}
+          </ListTag>
+        </div>
       );
       listItems = [];
       listType = null;

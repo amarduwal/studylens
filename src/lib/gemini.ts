@@ -168,28 +168,44 @@ export async function handleFollowUp(
     language
   );
 
-  try {
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }],
-        },
-      ],
-      config: {
-        temperature: 0.7,
-        topP: 0.95,
-        topK: 40,
-        maxOutputTokens: 4096,
-      },
-    });
+  let lastError: Error | null = null;
 
-    return response.text || "I apologize, but I couldn't generate a response. Please try again.";
-  } catch (error) {
-    console.error("Gemini follow-up error:", error);
-    throw new Error("Failed to process your question. Please try again.");
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        config: {
+          temperature: 0.7,
+          topP: 0.95,
+          topK: 40,
+          maxOutputTokens: 4096,
+        },
+      });
+
+      return response.text || "I apologize, but I couldn't generate a response. Please try again.";
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`Attempt ${attempt} failed:`, lastError.message);
+
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * attempt;
+        console.log(`Retrying in ${delay}ms...`);
+        await sleep(delay);
+      }
+    }
   }
+
+  // All retries failed
+  console.error("All Gemini API attempts failed");
+  throw new Error(
+    `Failed to analyze image after ${MAX_RETRIES} attempts: ${lastError?.message || "Unknown error"}`
+  );
 }
 
 /**
