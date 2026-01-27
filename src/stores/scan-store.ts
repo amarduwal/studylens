@@ -19,7 +19,6 @@ interface ScanState {
 
   // Conversation
   messages: ConversationMessage[];
-  setMessages: (messages: ConversationMessage[]) => void;
   isLoadingResponse: boolean;
 
   // Settings
@@ -39,28 +38,26 @@ interface ScanState {
 
   // Device fingerprint/identifier
   deviceFingerprint: string | null;
-  setDeviceFingerprint: (fingerprint: string) => void;
 
   // Actions
   setCurrentImages: (images: string[], files: File[]) => void;
-  addImage: (image: string, file: File) => void;
+  setMessages: (messages: ConversationMessage[]) => void;
   removeImage: (index: number) => void;
   setCurrentResult: (result: ScanResult | null) => void;
   setIsAnalyzing: (isAnalyzing: boolean) => void;
   setError: (error: string | null) => void;
   setLimitError: (error: LimitError) => void;
-  clearLimitError: () => void;
   setSelectedLanguage: (language: SupportedLanguage) => void;
-  addMessage: (message: Omit<ConversationMessage, "id" | "timestamp">) => void;
-  clearMessages: () => void;
+  setDeviceFingerprint: (fingerprint: string) => void;
   setIsLoadingResponse: (isLoading: boolean) => void;
+  addMessage: (message: Omit<ConversationMessage, "id" | "timestamp">) => void;
+  addImage: (image: string, file: File) => void;
   addToHistory: (result: ScanResult) => void;
   // fetchRecentScans: (sessionId: string) => Promise<void>;
   getRecentScans: () => ScanResult[];
   isBookmarked: (scanId: string) => boolean;
   getBookmarkedScans: () => ScanResult[];
   clearCurrentScan: () => void;
-  reset: () => void;
   fetchScansFromDB: (sessionId: string, page?: number) => Promise<void>;
   fetchBookmarksFromDB: (sessionId: string, page?: number) => Promise<ScanBookmarkResult[]>;
   loadMoreScans: () => Promise<void>;
@@ -68,7 +65,11 @@ interface ScanState {
   toggleBookmarkDB: (scanId: string, sessionId?: string) => Promise<BookmarkResponse>;
   getScanById: (scanId: string, sessionId: string) => Promise<ScanResult | null>;
   searchScans: (query: string, sessionId: string) => Promise<ScanBookmarkResult[]>;
+  reset: () => void;
+  clearMessages: () => void;
+  clearLimitError: () => void;
   clearSearch: () => void;
+  clearAllData: () => void;
 }
 
 export const useScanStore = create<ScanState>()(
@@ -342,7 +343,18 @@ export const useScanStore = create<ScanState>()(
           return null;
         }
       },
-
+      clearAllData: () =>
+        set({
+          scanHistory: [],
+          searchResults: [],
+          searchQuery: '',
+          messages: [],
+          currentResult: null,
+          hasFetched: false,
+          currentPage: 1,
+          hasMore: false,
+          sessionId: uuidv4(),
+        }),
     }),
     {
       name: "studylens-storage",

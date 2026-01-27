@@ -11,7 +11,8 @@ import { useEffect, useRef, useState } from 'react';
 
 export function Header() {
   const { data: session, status } = useSession();
-  const { selectedLanguage, setSelectedLanguage } = useScanStore();
+  const { clearAllData, selectedLanguage, setSelectedLanguage } =
+    useScanStore();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -31,6 +32,12 @@ export function Header() {
         document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [isDropdownOpen]);
+
+  const handleSignOut = async () => {
+    setIsDropdownOpen(false);
+    clearAllData(); // Clear store first
+    await signOut({ callbackUrl: '/' });
+  };
 
   return (
     <header className="sticky top-0 z-40 border-b border-[hsl(var(--border))] bg-[hsl(var(--background))]/95 backdrop-blur supports-backdrop-filter:bg-[hsl(var(--background))]/60">
@@ -147,10 +154,7 @@ export function Header() {
                         </Link>
                       )}
                       <button
-                        onClick={() => {
-                          setIsDropdownOpen(false);
-                          signOut();
-                        }}
+                        onClick={handleSignOut}
                         className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-[hsl(var(--muted))] transition-colors text-red-500"
                       >
                         <LogOut className="h-4 w-4" />
