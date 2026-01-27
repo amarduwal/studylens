@@ -324,7 +324,7 @@ export function FollowUpChat({
                                     onClick={() =>
                                       handleCopyMessage(message.content)
                                     }
-                                    className="h-6 w-6 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-100 md:opacity-0 group-hover/message:opacity-100"
+                                    className="h-6 w-6 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-100 group-hover/message:opacity-100"
                                   >
                                     <Copy className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
                                   </Button>
@@ -536,7 +536,7 @@ export function FollowUpChat({
                         variant="ghost"
                         size="icon"
                         onClick={() => handleCopyMessage(message.content)}
-                        className="h-5 w-5 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-0 group-hover/message:opacity-100"
+                        className="h-5 w-5 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-100 group-hover/message:opacity-100"
                       >
                         <Copy className="h-2.5 w-2.5 text-[hsl(var(--muted-foreground))]" />
                       </Button>
@@ -562,7 +562,7 @@ export function FollowUpChat({
                         variant="ghost"
                         size="icon"
                         onClick={() => handleCopyMessage(message.content)}
-                        className="h-5 w-5 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-0 group-hover/message:opacity-100"
+                        className="h-5 w-5 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-100 group-hover/message:opacity-100"
                       >
                         <Copy className="h-2.5 w-2.5 text-[hsl(var(--muted-foreground))]" />
                       </Button>
@@ -570,7 +570,7 @@ export function FollowUpChat({
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDownloadMarkdown(message.content)}
-                        className="h-5 w-5 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-0 group-hover/message:opacity-100"
+                        className="h-5 w-5 rounded-full bg-[hsl(var(--muted))]/30 hover:bg-[hsl(var(--muted))]/50 transition-all opacity-100 group-hover/message:opacity-100"
                       >
                         <Download className="h-2.5 w-2.5 text-[hsl(var(--muted-foreground))]" />
                       </Button>
