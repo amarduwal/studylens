@@ -62,6 +62,7 @@ export default function PWAInstallPrompt() {
     <AnimatePresence>
       {showPrompt && (
         <motion.div
+          key="install-prompt"
           initial={{ y: 100, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 100, opacity: 0 }}
@@ -77,7 +78,7 @@ export default function PWAInstallPrompt() {
             >
               {/* Close button */}
               <button
-                onClick={() => handleDismiss(7 * 24 * 60 * 60 * 1000)} // 7 days
+                onClick={() => handleDismiss(60 * 60 * 1000)} // 1 hour
                 className="absolute right-4 top-4 z-10 p-2 rounded-full hover:bg-[hsl(var(--muted))] transition-colors"
                 aria-label="Close"
               >
@@ -196,6 +197,7 @@ export default function PWAInstallPrompt() {
           <>
             {/* Backdrop */}
             <motion.div
+              key="ios-modal"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
