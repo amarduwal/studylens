@@ -57,7 +57,81 @@ export class GeminiLiveSession {
         },
       });
 
-      console.log("Gemini Live session created, starting receive loop...");
+      // Check WebSocket is actually open
+      const ws = this.session?.conn?.ws as WebSocket;
+      if (ws) {
+        console.log("Initial WebSocket state:", ws.readyState);
+
+        if (ws.readyState !== WebSocket.OPEN) {
+          // Wait for it to open
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error("WebSocket connection timeout"));
+            }, 5000);
+
+            if (ws.readyState === WebSocket.OPEN) {
+              clearTimeout(timeout);
+              resolve();
+              return;
+            }
+
+            ws.addEventListener('open', () => {
+              clearTimeout(timeout);
+              console.log("WebSocket opened");
+              resolve();
+            }, { once: true });
+
+            ws.addEventListener('error', (e) => {
+              clearTimeout(timeout);
+              reject(new Error("WebSocket connection failed"));
+            }, { once: true });
+
+            ws.addEventListener('close', (e) => {
+              clearTimeout(timeout);
+              reject(new Error(`WebSocket closed: ${e.code} ${e.reason}`));
+            }, { once: true });
+          });
+        }
+
+        console.log("WebSocket confirmed open, state:", ws.readyState);
+      }
+
+      console.log("WebSocket immediately after connect:", ws?.readyState);
+
+      // Keep connection alive with a small delay before starting receive loop
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      console.log("WebSocket after delay:", ws?.readyState);
+
+      // 🔍 DEBUG: Log session structure
+      // Comprehensive session debugging
+      console.log("=== FULL SESSION DEBUG ===");
+      console.log("Session value:", this.session);
+      console.log("Type:", typeof this.session);
+      console.log("Constructor:", this.session?.constructor?.name);
+      console.log("Is Promise:", this.session instanceof Promise);
+
+      // Get ALL properties including inherited
+      const getAllProps = (obj: any): string[] => {
+        const props: string[] = [];
+        while (obj && obj !== Object.prototype) {
+          props.push(...Object.getOwnPropertyNames(obj));
+          obj = Object.getPrototypeOf(obj);
+        }
+        return [...new Set(props)];
+      };
+      console.log("All properties:", getAllProps(this.session));
+
+      // Check for async iterator
+      console.log("Symbol.asyncIterator:", this.session?.[Symbol.asyncIterator]);
+      console.log("Symbol.iterator:", this.session?.[Symbol.iterator]);
+
+      // Check for common streaming props
+      ['_ws', 'ws', 'socket', 'stream', 'readable', 'next', 'receive'].forEach(prop => {
+        console.log(`Has ${prop}:`, prop in (this.session || {}), typeof this.session?.[prop]);
+      });
+      console.log("=========================");
+
       this.isConnected = true;
       this.callbacks.onConnected();
 
@@ -70,28 +144,6 @@ export class GeminiLiveSession {
         error instanceof Error ? error : new Error("Connection failed")
       );
       throw error;
-    }
-  }
-
-  private async startReceiveLoop(): Promise<void> {
-    if (!this.session) return;
-
-    try {
-      // Use async iterator to receive messages
-      for await (const message of this.session) {
-        if (!this.isConnected) break;
-        this.handleServerMessage(message);
-      }
-    } catch (error) {
-      if (this.isConnected) {
-        console.error("Receive loop error:", error);
-        this.callbacks.onError(
-          error instanceof Error ? error : new Error("Connection lost")
-        );
-      }
-    } finally {
-      this.isConnected = false;
-      this.callbacks.onDisconnected("Session ended");
     }
   }
 
@@ -125,6 +177,81 @@ export class GeminiLiveSession {
     return prompt;
   }
 
+  private async startReceiveLoop(): Promise<void> {
+    if (!this.session) {
+      console.error("No session available");
+      return;
+    }
+
+    try {
+      console.log("Starting receive loop...");
+
+      const browserWs = this.session.conn;
+      const ws = browserWs?.ws as WebSocket;
+
+      if (!ws) {
+        console.error("No WebSocket found");
+        return;
+      }
+
+      console.log("WebSocket state:", ws.readyState, "(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)");
+
+      // Use addEventListener - this WON'T interfere with SDK's internal handlers
+      ws.addEventListener('message', (event: MessageEvent) => {
+        if (!this.isConnected) return;
+
+        try {
+          let data;
+          if (typeof event.data === 'string') {
+            data = JSON.parse(event.data);
+          } else if (event.data instanceof Blob) {
+            event.data.text().then(text => {
+              try {
+                this.handleServerMessage(JSON.parse(text));
+              } catch (e) {
+                console.error("Error parsing blob message:", e);
+              }
+            });
+            return;
+          } else if (event.data instanceof ArrayBuffer) {
+            const decoder = new TextDecoder();
+            data = JSON.parse(decoder.decode(event.data));
+          } else {
+            console.log("Unknown message type:", typeof event.data);
+            return;
+          }
+
+          this.handleServerMessage(data);
+        } catch (error) {
+          console.error("Error processing WebSocket message:", error);
+        }
+      });
+
+      ws.addEventListener('close', (event: CloseEvent) => {
+        console.log("WebSocket closed:", event.code, event.reason);
+        this.handleLoopEnd();
+      });
+
+      ws.addEventListener('error', (event: Event) => {
+        console.error("WebSocket error:", event);
+        this.callbacks.onError(new Error("WebSocket connection error"));
+      });
+
+      console.log("WebSocket listeners attached successfully");
+
+    } catch (error) {
+      console.error("Receive loop error:", error);
+      this.callbacks.onError(error instanceof Error ? error : new Error("Receive loop failed"));
+    }
+  }
+
+  private handleLoopEnd(): void {
+    if (this.isConnected) {
+      this.isConnected = false;
+      this.callbacks.onDisconnected("Session ended");
+    }
+  }
+
   private handleServerMessage(message: LiveServerMessage): void {
     try {
       // Handle server content (audio/text responses)
@@ -142,7 +269,7 @@ export class GeminiLiveSession {
 
             // Handle audio
             if (part.inlineData && part.inlineData.mimeType?.includes("audio")) {
-              const audioData = this.base64ToArrayBuffer(part.inlineData.data);
+              const audioData = this.base64ToArrayBuffer(part.inlineData.data || '');
               this.callbacks.onAudioResponse(audioData);
               this.queueAudio(audioData);
             }
@@ -175,6 +302,14 @@ export class GeminiLiveSession {
 
   async sendAudio(audioData: ArrayBuffer): Promise<void> {
     if (!this.session || !this.isConnected) {
+      console.warn("Cannot send audio: not connected");
+      return;
+    }
+
+    // Check WebSocket state before sending
+    const ws = this.session?.conn?.ws as WebSocket;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.warn("Cannot send audio: WebSocket not open, state:", ws?.readyState);
       return;
     }
 
@@ -194,6 +329,13 @@ export class GeminiLiveSession {
 
   async sendImage(imageData: string, mimeType: string = "image/jpeg"): Promise<void> {
     if (!this.session || !this.isConnected) {
+      console.warn("Cannot send image: not connected");
+      return;
+    }
+
+    const ws = this.session?.conn?.ws as WebSocket;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.warn("Cannot send image: WebSocket not open, state:", ws?.readyState);
       return;
     }
 
@@ -306,7 +448,6 @@ export class GeminiLiveSession {
       throw new Error("AudioContext not initialized");
     }
 
-    // Gemini returns 24kHz 16-bit PCM
     const samples = new Int16Array(pcmData);
     const floatSamples = new Float32Array(samples.length);
 
@@ -349,9 +490,16 @@ export class GeminiLiveSession {
 
     if (this.session) {
       try {
-        await this.session.close();
+        const ws = this.session?.conn?.ws as WebSocket;
+        // Only close if not already closed
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          await this.session.close();
+        } else {
+          console.log("WebSocket already closed, skipping close()");
+        }
       } catch (error) {
-        console.error("Error closing session:", error);
+        // Ignore close errors - connection might already be closed
+        console.log("Session close handled:", error);
       }
       this.session = null;
     }
@@ -364,6 +512,8 @@ export class GeminiLiveSession {
       }
       this.audioContext = null;
     }
+
+    this.callbacks.onDisconnected();
   }
 
   get connected(): boolean {

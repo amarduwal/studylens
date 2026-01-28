@@ -478,7 +478,7 @@ export function LiveSession({ apiKey, config, onEnd }: LiveSessionProps) {
                 }
               }}
               placeholder="Type a message (or just speak)..."
-              className="flex-1 bg-gray-800 border-gray-700"
+              className="w-full pl-10 pr-4 rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))]"
               disabled={session.status !== 'connected'}
             />
             <Button
