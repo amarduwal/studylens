@@ -1,34 +1,29 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { LIVE_CONFIG, TUTOR_SYSTEM_PROMPT } from "./constants";
 import { getToolsForGemini } from "./tools-config";
-import { SessionConfig, LiveMessage } from "@/types/live.ts";
-
-type LiveSession = Awaited<ReturnType<typeof GoogleGenAI.prototype.live.connect>>;
-type LiveServerMessage = Parameters<Parameters<LiveSession['receive']>[0]>[0];
+import { SessionConfig } from "@/types/live";
 
 export interface GeminiLiveCallbacks {
   onConnected: () => void;
-  onDisconnected: () => void;
+  onDisconnected: (reason?: string) => void;
   onError: (error: Error) => void;
   onAudioResponse: (audioData: ArrayBuffer) => void;
   onTextResponse: (text: string, isPartial: boolean) => void;
-  onToolCall: (toolName: string, args: Record<string, any>) => void;
-  onThinking: (thought: string) => void;
+  onToolCall: (toolName: string, args: Record<string, any>, id: string) => void;
   onInterrupted: () => void;
   onTurnComplete: () => void;
 }
 
 export class GeminiLiveSession {
   private ai: GoogleGenAI;
-  private session: LiveSession | null = null;
+  private session: any = null;
   private callbacks: GeminiLiveCallbacks;
   private config: SessionConfig;
   private isConnected: boolean = false;
   private audioContext: AudioContext | null = null;
   private audioQueue: ArrayBuffer[] = [];
   private isPlaying: boolean = false;
-  private receiveLoop: Promise<void> | null = null;
-  private shouldStop: boolean = false;
+  private currentSourceNode: AudioBufferSourceNode | null = null;
 
   constructor(apiKey: string, config: SessionConfig, callbacks: GeminiLiveCallbacks) {
     this.ai = new GoogleGenAI({ apiKey });
@@ -38,29 +33,14 @@ export class GeminiLiveSession {
 
   async connect(): Promise<void> {
     try {
+      console.log("Connecting to Gemini Live API...");
       const systemPrompt = this.buildSystemPrompt();
+
+      // Initialize audio context
+      this.audioContext = new AudioContext({ sampleRate: 24000 });
 
       this.session = await this.ai.live.connect({
         model: LIVE_CONFIG.MODEL,
-        callbacks: {
-          onopen: () => {
-            console.log("Gemini Live connection opened");
-            this.isConnected = true;
-            this.callbacks.onConnected();
-          },
-          onmessage: (message: LiveServerMessage) => {
-            this.handleServerMessage(message);
-          },
-          onerror: (error: ErrorEvent) => {
-            console.error("Gemini Live error:", error);
-            this.callbacks.onError(new Error(error.message || "Connection error"));
-          },
-          onclose: (event: CloseEvent) => {
-            console.log("Gemini Live connection closed:", event.code, event.reason);
-            this.isConnected = false;
-            this.callbacks.onDisconnected();
-          },
-        },
         config: {
           responseModalities: [Modality.AUDIO, Modality.TEXT],
           speechConfig: {
@@ -77,13 +57,41 @@ export class GeminiLiveSession {
         },
       });
 
-      // Start the receive loop
-      this.startReceiveLoop();
+      console.log("Gemini Live session created, starting receive loop...");
+      this.isConnected = true;
+      this.callbacks.onConnected();
 
+      // Start receiving messages
+      this.startReceiveLoop();
     } catch (error) {
       console.error("Failed to connect to Gemini Live:", error);
-      this.callbacks.onError(error instanceof Error ? error : new Error("Connection failed"));
+      this.isConnected = false;
+      this.callbacks.onError(
+        error instanceof Error ? error : new Error("Connection failed")
+      );
       throw error;
+    }
+  }
+
+  private async startReceiveLoop(): Promise<void> {
+    if (!this.session) return;
+
+    try {
+      // Use async iterator to receive messages
+      for await (const message of this.session) {
+        if (!this.isConnected) break;
+        this.handleServerMessage(message);
+      }
+    } catch (error) {
+      if (this.isConnected) {
+        console.error("Receive loop error:", error);
+        this.callbacks.onError(
+          error instanceof Error ? error : new Error("Connection lost")
+        );
+      }
+    } finally {
+      this.isConnected = false;
+      this.callbacks.onDisconnected("Session ended");
     }
   }
 
@@ -92,8 +100,15 @@ export class GeminiLiveSession {
 
     if (this.config.language && this.config.language !== "en") {
       const languageNames: Record<string, string> = {
-        hi: "Hindi", ne: "Nepali", es: "Spanish", fr: "French",
-        ar: "Arabic", zh: "Chinese", bn: "Bengali", pt: "Portuguese", id: "Indonesian"
+        hi: "Hindi",
+        ne: "Nepali",
+        es: "Spanish",
+        fr: "French",
+        ar: "Arabic",
+        zh: "Chinese",
+        bn: "Bengali",
+        pt: "Portuguese",
+        id: "Indonesian",
       };
       const langName = languageNames[this.config.language] || this.config.language;
       prompt += `\n\nIMPORTANT: Communicate with the student in ${langName}. Speak and respond in ${langName}.`;
@@ -107,49 +122,26 @@ export class GeminiLiveSession {
       prompt += `\n\nThe current subject focus is: ${this.config.subject}.`;
     }
 
-    if (this.config.systemPrompt) {
-      prompt += `\n\nAdditional instructions: ${this.config.systemPrompt}`;
-    }
-
     return prompt;
-  }
-
-  private async startReceiveLoop(): Promise<void> {
-    if (!this.session) return;
-
-    this.shouldStop = false;
-
-    try {
-      // The Gemini Live SDK handles receiving via callbacks
-      // This is just for any additional async processing if needed
-      while (!this.shouldStop && this.isConnected) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    } catch (error) {
-      if (!this.shouldStop) {
-        console.error("Receive loop error:", error);
-        this.callbacks.onError(error instanceof Error ? error : new Error("Receive error"));
-      }
-    }
   }
 
   private handleServerMessage(message: LiveServerMessage): void {
     try {
-      // Handle different message types from Gemini Live
-      if ('serverContent' in message && message.serverContent) {
+      // Handle server content (audio/text responses)
+      if (message.serverContent) {
         const content = message.serverContent;
 
-        // Handle model turn (AI is speaking)
-        if ('modelTurn' in content && content.modelTurn) {
+        if (content.modelTurn) {
           const parts = content.modelTurn.parts || [];
 
           for (const part of parts) {
-            if ('text' in part && part.text) {
+            // Handle text
+            if (part.text) {
               this.callbacks.onTextResponse(part.text, !content.turnComplete);
             }
 
-            if ('inlineData' in part && part.inlineData) {
-              // Audio data
+            // Handle audio
+            if (part.inlineData && part.inlineData.mimeType?.includes("audio")) {
               const audioData = this.base64ToArrayBuffer(part.inlineData.data);
               this.callbacks.onAudioResponse(audioData);
               this.queueAudio(audioData);
@@ -170,21 +162,19 @@ export class GeminiLiveSession {
       }
 
       // Handle tool calls
-      if ('toolCall' in message && message.toolCall) {
+      if (message.toolCall) {
         const functionCalls = message.toolCall.functionCalls || [];
         for (const call of functionCalls) {
-          this.callbacks.onToolCall(call.name, call.args || {});
+          this.callbacks.onToolCall(call.name, call.args || {}, call.id);
         }
       }
-
     } catch (error) {
-      console.error("Error handling server message:", error);
+      console.error("Error handling server message:", error, message);
     }
   }
 
   async sendAudio(audioData: ArrayBuffer): Promise<void> {
     if (!this.session || !this.isConnected) {
-      console.warn("Cannot send audio: not connected");
       return;
     }
 
@@ -204,12 +194,10 @@ export class GeminiLiveSession {
 
   async sendImage(imageData: string, mimeType: string = "image/jpeg"): Promise<void> {
     if (!this.session || !this.isConnected) {
-      console.warn("Cannot send image: not connected");
       return;
     }
 
     try {
-      // Remove data URL prefix if present
       const base64Data = imageData.replace(/^data:image\/\w+;base64,/, "");
 
       await this.session.sendRealtimeInput({
@@ -225,7 +213,6 @@ export class GeminiLiveSession {
 
   async sendText(text: string): Promise<void> {
     if (!this.session || !this.isConnected) {
-      console.warn("Cannot send text: not connected");
       return;
     }
 
@@ -246,7 +233,6 @@ export class GeminiLiveSession {
 
   async sendToolResult(toolCallId: string, result: any): Promise<void> {
     if (!this.session || !this.isConnected) {
-      console.warn("Cannot send tool result: not connected");
       return;
     }
 
@@ -272,7 +258,7 @@ export class GeminiLiveSession {
   }
 
   private async playNextAudio(): Promise<void> {
-    if (this.audioQueue.length === 0) {
+    if (this.audioQueue.length === 0 || !this.audioContext) {
       this.isPlaying = false;
       return;
     }
@@ -281,21 +267,21 @@ export class GeminiLiveSession {
     const audioData = this.audioQueue.shift()!;
 
     try {
-      if (!this.audioContext) {
-        this.audioContext = new AudioContext({ sampleRate: 24000 });
+      if (this.audioContext.state === "suspended") {
+        await this.audioContext.resume();
       }
 
-      // Convert PCM to AudioBuffer
       const audioBuffer = await this.pcmToAudioBuffer(audioData);
-      const source = this.audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(this.audioContext.destination);
+      this.currentSourceNode = this.audioContext.createBufferSource();
+      this.currentSourceNode.buffer = audioBuffer;
+      this.currentSourceNode.connect(this.audioContext.destination);
 
-      source.onended = () => {
+      this.currentSourceNode.onended = () => {
+        this.currentSourceNode = null;
         this.playNextAudio();
       };
 
-      source.start();
+      this.currentSourceNode.start();
     } catch (error) {
       console.error("Error playing audio:", error);
       this.playNextAudio();
@@ -304,14 +290,23 @@ export class GeminiLiveSession {
 
   private clearAudioQueue(): void {
     this.audioQueue = [];
+    if (this.currentSourceNode) {
+      try {
+        this.currentSourceNode.stop();
+      } catch (e) {
+        // Ignore if already stopped
+      }
+      this.currentSourceNode = null;
+    }
     this.isPlaying = false;
   }
 
   private async pcmToAudioBuffer(pcmData: ArrayBuffer): Promise<AudioBuffer> {
     if (!this.audioContext) {
-      this.audioContext = new AudioContext({ sampleRate: 24000 });
+      throw new Error("AudioContext not initialized");
     }
 
+    // Gemini returns 24kHz 16-bit PCM
     const samples = new Int16Array(pcmData);
     const floatSamples = new Float32Array(samples.length);
 
@@ -319,7 +314,11 @@ export class GeminiLiveSession {
       floatSamples[i] = samples[i] / 32768;
     }
 
-    const audioBuffer = this.audioContext.createBuffer(1, floatSamples.length, 24000);
+    const audioBuffer = this.audioContext.createBuffer(
+      1,
+      floatSamples.length,
+      24000
+    );
     audioBuffer.getChannelData(0).set(floatSamples);
 
     return audioBuffer;
@@ -344,8 +343,9 @@ export class GeminiLiveSession {
   }
 
   async disconnect(): Promise<void> {
-    this.shouldStop = true;
+    console.log("Disconnecting from Gemini Live...");
     this.isConnected = false;
+    this.clearAudioQueue();
 
     if (this.session) {
       try {
@@ -357,11 +357,13 @@ export class GeminiLiveSession {
     }
 
     if (this.audioContext) {
-      await this.audioContext.close();
+      try {
+        await this.audioContext.close();
+      } catch (error) {
+        console.error("Error closing audio context:", error);
+      }
       this.audioContext = null;
     }
-
-    this.clearAudioQueue();
   }
 
   get connected(): boolean {

@@ -7,13 +7,14 @@ export type SessionStatus =
   | "ended";
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
+export type MessageType = "text" | "audio" | "tool_call" | "tool_result";
 
 export interface LiveMessage {
   id: string;
   role: MessageRole;
   content: string;
   timestamp: Date;
-  type: "text" | "audio" | "tool_call" | "tool_result";
+  type: MessageType;
   metadata?: {
     audioData?: string;
     toolName?: string;
@@ -33,6 +34,7 @@ export interface SessionConfig {
 
 export interface LiveSessionState {
   sessionId: string | null;
+  dbSessionId: string | null;
   status: SessionStatus;
   messages: LiveMessage[];
   isAiSpeaking: boolean;
@@ -40,6 +42,7 @@ export interface LiveSessionState {
   currentThought: string | null;
   error: string | null;
   tools: ToolState[];
+  startTime: Date | null;
 }
 
 export interface ToolState {
@@ -56,6 +59,33 @@ export interface MediaState {
   audioLevel: number;
   videoStream: MediaStream | null;
   audioStream: MediaStream | null;
+  error: string | null;
+}
+
+// API Response Types
+export interface LiveConfigResponse {
+  success: boolean;
+  data?: {
+    apiKey: string;
+    model: string;
+    maxDuration: number;
+    features: {
+      voiceEnabled: boolean;
+      videoEnabled: boolean;
+      screenShareEnabled: boolean;
+      toolsEnabled: boolean;
+    };
+  };
+  error?: string;
+}
+
+export interface CreateSessionResponse {
+  success: boolean;
+  data?: {
+    sessionId: string;
+    createdAt: string;
+  };
+  error?: string;
 }
 
 // Tool Types

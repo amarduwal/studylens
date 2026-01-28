@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useEffect } from 'react';
-import { LiveMessage } from '@/types/live.ts';
+import { LiveMessage } from '@/types/live';
 import { User, Bot, Wrench, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

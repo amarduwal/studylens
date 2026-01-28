@@ -7,9 +7,8 @@ import {
   LiveMessage,
   SessionConfig,
   SessionStatus
-} from "@/types/live.ts";
+} from "@/types/live";
 import { GeminiLiveSession, GeminiLiveCallbacks } from "@/lib/live/gemini-live-client";
-import { LIVE_CONFIG } from "@/lib/live/constants";
 
 interface UseLiveSessionReturn extends LiveSessionState {
   connect: () => Promise<void>;
@@ -27,6 +26,7 @@ export function useLiveSession(
 ): UseLiveSessionReturn {
   const [state, setState] = useState<LiveSessionState>({
     sessionId: null,
+    dbSessionId: null,
     status: "idle",
     messages: [],
     isAiSpeaking: false,
@@ -34,26 +34,33 @@ export function useLiveSession(
     currentThought: null,
     error: null,
     tools: [],
+    startTime: null,
   });
+
 
   const sessionRef = useRef<GeminiLiveSession | null>(null);
   const currentTextRef = useRef<string>("");
-  const pendingToolCallRef = useRef<{ name: string; id: string } | null>(null);
+  const pendingToolCallsRef = useRef<Map<string, { name: string; id: string }>>(
+    new Map()
+  );
 
-  const addMessage = useCallback((message: Omit<LiveMessage, "id" | "timestamp">) => {
-    const newMessage: LiveMessage = {
-      ...message,
-      id: uuidv4(),
-      timestamp: new Date(),
-    };
+  const addMessage = useCallback(
+    (message: Omit<LiveMessage, "id" | "timestamp">): LiveMessage => {
+      const newMessage: LiveMessage = {
+        ...message,
+        id: uuidv4(),
+        timestamp: new Date(),
+      };
 
-    setState(prev => ({
-      ...prev,
-      messages: [...prev.messages, newMessage],
-    }));
+      setState((prev) => ({
+        ...prev,
+        messages: [...prev.messages, newMessage],
+      }));
 
-    return newMessage;
-  }, []);
+      return newMessage;
+    },
+    []
+  );
 
   const updateStatus = useCallback((status: SessionStatus, error?: string) => {
     setState(prev => ({
@@ -63,38 +70,122 @@ export function useLiveSession(
     }));
   }, []);
 
+  const createDbSession = useCallback(async (): Promise<string | null> => {
+    try {
+      const response = await fetch("/api/live/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language: config.language,
+          educationLevel: config.educationLevel,
+          subject: config.subject,
+          voiceEnabled: config.voiceEnabled,
+          videoEnabled: config.videoEnabled,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        return data.data.sessionId;
+      }
+      console.error("Failed to create DB session:", data.error);
+      return null;
+    } catch (error) {
+      console.error("Error creating DB session:", error);
+      return null;
+    }
+  }, [config]);
+
+  const updateDbSession = useCallback(
+    async (updates: Record<string, any>) => {
+      if (!state.dbSessionId) return;
+
+      try {
+        await fetch("/api/live/session", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: state.dbSessionId,
+            ...updates,
+          }),
+        });
+      } catch (error) {
+        console.error("Error updating DB session:", error);
+      }
+    },
+    [state.dbSessionId]
+  );
+
   const connect = useCallback(async () => {
     if (sessionRef.current?.connected) {
       console.warn("Already connected");
       return;
     }
 
+    if (!apiKey) {
+      updateStatus("error", "API key not provided");
+      return;
+    }
+
     updateStatus("connecting");
+
+    // Create database session
+    const dbSessionId = await createDbSession();
 
     const callbacks: GeminiLiveCallbacks = {
       onConnected: () => {
+        console.log("Gemini Live connected");
         const sessionId = uuidv4();
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           sessionId,
+          dbSessionId: dbSessionId || null,
           status: "connected",
           error: null,
+          startTime: new Date(),
         }));
+
+        // Update DB session status
+        if (dbSessionId) {
+          fetch("/api/live/session", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: dbSessionId,
+              status: "connected",
+            }),
+          }).catch(console.error);
+        }
 
         addMessage({
           role: "system",
-          content: "Connected to AI Tutor. You can start speaking or show me what you're working on!",
+          content:
+            "Connected to AI Tutor! You can start speaking or show me what you're working on.",
           type: "text",
         });
       },
 
-      onDisconnected: () => {
+      onDisconnected: (reason) => {
+        console.log("Gemini Live disconnected:", reason);
         updateStatus("ended");
-        addMessage({
-          role: "system",
-          content: "Session ended.",
-          type: "text",
-        });
+
+        // Update DB session
+        if (dbSessionId) {
+          const duration = state.startTime
+            ? Math.floor((Date.now() - state.startTime.getTime()) / 1000)
+            : 0;
+
+          fetch("/api/live/session", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: dbSessionId,
+              status: "ended",
+              endedAt: new Date().toISOString(),
+              duration,
+            }),
+          }).catch(console.error);
+        }
       },
 
       onError: (error) => {
@@ -102,14 +193,14 @@ export function useLiveSession(
         updateStatus("error", error.message);
       },
 
-      onAudioResponse: (audioData) => {
-        setState(prev => ({ ...prev, isAiSpeaking: true }));
+      onAudioResponse: () => {
+        setState((prev) => ({ ...prev, isAiSpeaking: true }));
       },
 
       onTextResponse: (text, isPartial) => {
         if (isPartial) {
           currentTextRef.current += text;
-          setState(prev => ({
+          setState((prev) => ({
             ...prev,
             currentThought: currentTextRef.current,
           }));
@@ -125,49 +216,43 @@ export function useLiveSession(
             });
           }
 
-          setState(prev => ({
+          setState((prev) => ({
             ...prev,
             currentThought: null,
           }));
         }
       },
 
-      onToolCall: (toolName, args) => {
-        const toolCallId = uuidv4();
-        pendingToolCallRef.current = { name: toolName, id: toolCallId };
+      onToolCall: (toolName, args, toolCallId) => {
+        console.log("Tool call:", toolName, args);
+        pendingToolCallsRef.current.set(toolName, { name: toolName, id: toolCallId });
 
         addMessage({
           role: "assistant",
           content: `Using ${toolName}...`,
           type: "tool_call",
-          metadata: {
-            toolName,
-            toolArgs: args,
-          },
+          metadata: { toolName, toolArgs: args },
         });
 
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
-          tools: prev.tools.map(t =>
-            t.name === toolName ? { ...t, isActive: true } : t
-          ),
+          tools: prev.tools.some((t) => t.name === toolName)
+            ? prev.tools.map((t) =>
+              t.name === toolName ? { ...t, isActive: true } : t
+            )
+            : [...prev.tools, { name: toolName, isActive: true }],
         }));
 
         // Emit event for tool execution
-        window.dispatchEvent(new CustomEvent("live:tool_call", {
-          detail: { toolName, args, toolCallId },
-        }));
-      },
-
-      onThinking: (thought) => {
-        setState(prev => ({
-          ...prev,
-          currentThought: thought,
-        }));
+        window.dispatchEvent(
+          new CustomEvent("live:tool_call", {
+            detail: { toolName, args, toolCallId },
+          })
+        );
       },
 
       onInterrupted: () => {
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           isAiSpeaking: false,
           currentThought: null,
@@ -176,7 +261,7 @@ export function useLiveSession(
       },
 
       onTurnComplete: () => {
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           isAiSpeaking: false,
         }));
@@ -188,27 +273,44 @@ export function useLiveSession(
       await sessionRef.current.connect();
     } catch (error) {
       console.error("Failed to connect:", error);
-      updateStatus("error", error instanceof Error ? error.message : "Connection failed");
+      updateStatus(
+        "error",
+        error instanceof Error ? error.message : "Connection failed"
+      );
     }
-  }, [apiKey, config, addMessage, updateStatus]);
+  }, [apiKey, config, addMessage, updateStatus, createDbSession, state.startTime]);
 
   const disconnect = useCallback(async () => {
     if (sessionRef.current) {
       await sessionRef.current.disconnect();
       sessionRef.current = null;
     }
+
+    // Update DB session
+    if (state.dbSessionId && state.startTime) {
+      const duration = Math.floor(
+        (Date.now() - state.startTime.getTime()) / 1000
+      );
+
+      await fetch("/api/live/session", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: state.dbSessionId,
+          status: "ended",
+          endedAt: new Date().toISOString(),
+          duration,
+          messageCount: state.messages.length,
+        }),
+      }).catch(console.error);
+    }
+
     updateStatus("ended");
-  }, [updateStatus]);
+  }, [updateStatus, state.dbSessionId, state.startTime, state.messages.length]);
 
   const sendAudio = useCallback((audioData: ArrayBuffer) => {
     if (sessionRef.current?.connected) {
       sessionRef.current.sendAudio(audioData);
-      setState(prev => ({ ...prev, isUserSpeaking: true }));
-
-      // Reset user speaking state after a delay
-      setTimeout(() => {
-        setState(prev => ({ ...prev, isUserSpeaking: false }));
-      }, 500);
     }
   }, []);
 
@@ -218,44 +320,48 @@ export function useLiveSession(
     }
   }, []);
 
-  const sendText = useCallback((text: string) => {
-    if (sessionRef.current?.connected && text.trim()) {
-      addMessage({
-        role: "user",
-        content: text,
-        type: "text",
-      });
-      sessionRef.current.sendText(text);
-    }
-  }, [addMessage]);
+  const sendText = useCallback(
+    (text: string) => {
+      if (sessionRef.current?.connected && text.trim()) {
+        addMessage({
+          role: "user",
+          content: text,
+          type: "text",
+        });
+        sessionRef.current.sendText(text);
+      }
+    },
+    [addMessage]
+  );
 
-  const executeToolResult = useCallback((toolName: string, result: any) => {
-    if (sessionRef.current?.connected && pendingToolCallRef.current) {
-      sessionRef.current.sendToolResult(pendingToolCallRef.current.id, result);
+  const executeToolResult = useCallback(
+    (toolName: string, result: any) => {
+      const toolCall = pendingToolCallsRef.current.get(toolName);
+      if (sessionRef.current?.connected && toolCall) {
+        sessionRef.current.sendToolResult(toolCall.id, result);
 
-      addMessage({
-        role: "tool",
-        content: `${toolName} completed`,
-        type: "tool_result",
-        metadata: {
-          toolName,
-          toolResult: result,
-        },
-      });
+        addMessage({
+          role: "tool",
+          content: `${toolName} completed`,
+          type: "tool_result",
+          metadata: { toolName, toolResult: result },
+        });
 
-      setState(prev => ({
-        ...prev,
-        tools: prev.tools.map(t =>
-          t.name === toolName ? { ...t, isActive: false, lastResult: result } : t
-        ),
-      }));
+        setState((prev) => ({
+          ...prev,
+          tools: prev.tools.map((t) =>
+            t.name === toolName ? { ...t, isActive: false, lastResult: result } : t
+          ),
+        }));
 
-      pendingToolCallRef.current = null;
-    }
-  }, [addMessage]);
+        pendingToolCallsRef.current.delete(toolName);
+      }
+    },
+    [addMessage]
+  );
 
   const clearMessages = useCallback(() => {
-    setState(prev => ({
+    setState((prev) => ({
       ...prev,
       messages: [],
       currentThought: null,

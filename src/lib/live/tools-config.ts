@@ -1,4 +1,4 @@
-import { FunctionDeclaration } from "@/types/live.ts";
+import { FunctionDeclaration } from "@/types/live";
 
 
 export const TUTOR_TOOLS: FunctionDeclaration[] = [
