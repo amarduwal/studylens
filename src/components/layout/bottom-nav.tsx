@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, History, Bookmark, User } from 'lucide-react';
+import { Home, History, Bookmark, User, Video } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { href: '/', icon: Home, label: 'Scan' },
+  { href: '/live', icon: Video, label: 'Live' },
   { href: '/history', icon: History, label: 'History' },
   { href: '/saved', icon: Bookmark, label: 'Saved' },
   { href: '/profile', icon: User, label: 'Profile' },
@@ -28,7 +29,7 @@ export function BottomNav() {
                 'flex flex-col items-center gap-1 px-4 text-xs transition-colors',
                 isActive
                   ? 'text-[hsl(var(--primary))]'
-                  : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+                  : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]',
               )}
             >
               <item.icon className="h-5 w-5" />
