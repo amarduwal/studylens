@@ -780,7 +780,8 @@ export const liveSessions = pgTable(
     toolCallsCount: integer("tool_calls_count").default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-  });
+  }
+);
 
 // Live Session Messages Table
 export const liveSessionMessages = pgTable(
@@ -790,13 +791,17 @@ export const liveSessionMessages = pgTable(
     sessionId: uuid("session_id")
       .references(() => liveSessions.id, { onDelete: "cascade" })
       .notNull(),
-    role: varchar("role", { length: 20 }).notNull(),
-    type: varchar("type", { length: 20 }).notNull(),
+    role: varchar("role", { length: 20 }).notNull(), // user | assistant | system | tool
+    type: varchar("type", { length: 20 }).notNull(), // text | audio | tool_call | tool_result
     content: text("content"),
-    audioUrl: text("audio_url"),
+    audioUrl: text("audio_url"), // R2 public URL for playback
+    audioKey: text("audio_key"), // R2 key for deletion
+    duration: decimal("duration", { precision: 10, scale: 2 }), // Audio duration in seconds
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  });
+  }
+);
+
 
 // ============ RELATIONS ============
 

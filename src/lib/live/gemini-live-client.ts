@@ -1,7 +1,7 @@
-import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
-import { LIVE_CONFIG, TUTOR_SYSTEM_PROMPT } from "./constants";
-import { getToolsForGemini } from "./tools-config";
-import { SessionConfig } from "@/types/live";
+import { GoogleGenAI, Modality } from "@google/genai";
+import { LiveSessionService, LiveMessage } from "./live-session-service";
+import { LIVE_CONFIG } from "./constants";
+import { VOICE_SYSTEM_PROMPT } from "../voice-prompts";
 
 export interface GeminiLiveCallbacks {
   onConnected: () => void;
@@ -9,9 +9,21 @@ export interface GeminiLiveCallbacks {
   onError: (error: Error) => void;
   onAudioResponse: (audioData: ArrayBuffer) => void;
   onTextResponse: (text: string, isPartial: boolean) => void;
-  onToolCall: (toolName: string, args: Record<string, any>, id: string) => void;
+  onTranscript: (text: string, role: "user" | "assistant") => void;
   onInterrupted: () => void;
   onTurnComplete: () => void;
+  onMessageSaved: (message: LiveMessage) => void;
+  onThinkingStart?: () => void;
+  onThinkingEnd?: () => void;
+}
+
+export interface SessionConfig {
+  userId?: string;
+  guestSessionId?: string;
+  language?: string;
+  educationLevel?: string;
+  subject?: string;
+  resumeSessionId?: string;
 }
 
 export class GeminiLiveSession {
@@ -25,24 +37,70 @@ export class GeminiLiveSession {
   private isPlaying: boolean = false;
   private currentSourceNode: AudioBufferSourceNode | null = null;
 
-  constructor(apiKey: string, config: SessionConfig, callbacks: GeminiLiveCallbacks) {
+  // Database service
+  private dbService: LiveSessionService;
+  private clientSessionId: string;
+  private startTime: Date | null = null;
+
+  // Message accumulation
+  private currentAssistantText: string = "";
+  private messageCount: number = 0;
+
+  // Audio collection for R2 storage
+  private audioChunksForStorage: ArrayBuffer[] = [];
+  private isCollectingAudio: boolean = false;
+
+  // Track if we've already saved user transcript to avoid duplicates
+  private lastUserTranscript: string = "";
+
+  // Add to class properties:
+  private responseStartTime: number = 0;
+  private audioBufferQueue: { buffer: AudioBuffer; timestamp: number }[] = [];
+  private nextPlayTime: number = 0;
+  private isAudioScheduled: boolean = false;
+  private readonly BUFFER_AHEAD_TIME = 0.1; // 100ms buffer
+  private readonly MIN_BUFFER_SIZE = 3; // Wait for 3 chunks before playing
+
+  private onAudioLevel?: (level: number) => void;
+
+  constructor(apiKey: string, config: SessionConfig, callbacks: GeminiLiveCallbacks & { onAudioLevel?: (level: number) => void }) {
     this.ai = new GoogleGenAI({ apiKey });
     this.config = config;
     this.callbacks = callbacks;
+    this.dbService = new LiveSessionService();
+    this.clientSessionId = `live_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.onAudioLevel = callbacks.onAudioLevel;
   }
 
   async connect(): Promise<void> {
     try {
       console.log("Connecting to Gemini Live API...");
-      const systemPrompt = this.buildSystemPrompt();
 
-      // Initialize audio context
       this.audioContext = new AudioContext({ sampleRate: 24000 });
+      this.startTime = new Date();
+
+      if (this.config.resumeSessionId) {
+        const resumed = await this.dbService.resumeSession(this.config.resumeSessionId);
+        if (!resumed) {
+          throw new Error("Failed to resume session");
+        }
+      } else {
+        await this.dbService.createSession({
+          userId: this.config.userId,
+          sessionId: this.config.guestSessionId || this.clientSessionId,
+          language: this.config.language,
+          educationLevel: this.config.educationLevel,
+          subject: this.config.subject,
+        });
+      }
+
+
+      const systemPrompt = this.buildSystemPrompt();
 
       this.session = await this.ai.live.connect({
         model: LIVE_CONFIG.MODEL,
         config: {
-          responseModalities: [Modality.AUDIO, Modality.TEXT],
+          responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -53,93 +111,36 @@ export class GeminiLiveSession {
           systemInstruction: {
             parts: [{ text: systemPrompt }],
           },
-          tools: getToolsForGemini(),
+        },
+        callbacks: {
+          onopen: () => {
+            console.log("Connection opened");
+            this.isConnected = true;
+            this.dbService.updateSession({ status: "connected" });
+            this.callbacks.onConnected();
+          },
+          onmessage: (message: any) => {
+            this.handleMessage(message);
+          },
+          onerror: (error: any) => {
+            console.error("Connection error:", error);
+            this.dbService.updateSession({ status: "error" });
+            this.callbacks.onError(
+              error instanceof Error ? error : new Error(String(error))
+            );
+          },
+          onclose: (event: any) => {
+            console.log("Connection closed:", event);
+            this.handleDisconnect();
+          },
         },
       });
 
-      // Check WebSocket is actually open
-      const ws = this.session?.conn?.ws as WebSocket;
-      if (ws) {
-        console.log("Initial WebSocket state:", ws.readyState);
-
-        if (ws.readyState !== WebSocket.OPEN) {
-          // Wait for it to open
-          await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              reject(new Error("WebSocket connection timeout"));
-            }, 5000);
-
-            if (ws.readyState === WebSocket.OPEN) {
-              clearTimeout(timeout);
-              resolve();
-              return;
-            }
-
-            ws.addEventListener('open', () => {
-              clearTimeout(timeout);
-              console.log("WebSocket opened");
-              resolve();
-            }, { once: true });
-
-            ws.addEventListener('error', (e) => {
-              clearTimeout(timeout);
-              reject(new Error("WebSocket connection failed"));
-            }, { once: true });
-
-            ws.addEventListener('close', (e) => {
-              clearTimeout(timeout);
-              reject(new Error(`WebSocket closed: ${e.code} ${e.reason}`));
-            }, { once: true });
-          });
-        }
-
-        console.log("WebSocket confirmed open, state:", ws.readyState);
-      }
-
-      console.log("WebSocket immediately after connect:", ws?.readyState);
-
-      // Keep connection alive with a small delay before starting receive loop
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      console.log("WebSocket after delay:", ws?.readyState);
-
-      // 🔍 DEBUG: Log session structure
-      // Comprehensive session debugging
-      console.log("=== FULL SESSION DEBUG ===");
-      console.log("Session value:", this.session);
-      console.log("Type:", typeof this.session);
-      console.log("Constructor:", this.session?.constructor?.name);
-      console.log("Is Promise:", this.session instanceof Promise);
-
-      // Get ALL properties including inherited
-      const getAllProps = (obj: any): string[] => {
-        const props: string[] = [];
-        while (obj && obj !== Object.prototype) {
-          props.push(...Object.getOwnPropertyNames(obj));
-          obj = Object.getPrototypeOf(obj);
-        }
-        return [...new Set(props)];
-      };
-      console.log("All properties:", getAllProps(this.session));
-
-      // Check for async iterator
-      console.log("Symbol.asyncIterator:", this.session?.[Symbol.asyncIterator]);
-      console.log("Symbol.iterator:", this.session?.[Symbol.iterator]);
-
-      // Check for common streaming props
-      ['_ws', 'ws', 'socket', 'stream', 'readable', 'next', 'receive'].forEach(prop => {
-        console.log(`Has ${prop}:`, prop in (this.session || {}), typeof this.session?.[prop]);
-      });
-      console.log("=========================");
-
-      this.isConnected = true;
-      this.callbacks.onConnected();
-
-      // Start receiving messages
-      this.startReceiveLoop();
+      console.log("Session created successfully");
     } catch (error) {
-      console.error("Failed to connect to Gemini Live:", error);
+      console.error("Failed to connect:", error);
       this.isConnected = false;
+      this.dbService.updateSession({ status: "error" });
       this.callbacks.onError(
         error instanceof Error ? error : new Error("Connection failed")
       );
@@ -147,171 +148,206 @@ export class GeminiLiveSession {
     }
   }
 
-  private buildSystemPrompt(): string {
-    let prompt = TUTOR_SYSTEM_PROMPT;
-
-    if (this.config.language && this.config.language !== "en") {
-      const languageNames: Record<string, string> = {
-        hi: "Hindi",
-        ne: "Nepali",
-        es: "Spanish",
-        fr: "French",
-        ar: "Arabic",
-        zh: "Chinese",
-        bn: "Bengali",
-        pt: "Portuguese",
-        id: "Indonesian",
-      };
-      const langName = languageNames[this.config.language] || this.config.language;
-      prompt += `\n\nIMPORTANT: Communicate with the student in ${langName}. Speak and respond in ${langName}.`;
-    }
-
-    if (this.config.educationLevel) {
-      prompt += `\n\nThe student is at ${this.config.educationLevel} level. Adjust your explanations accordingly.`;
-    }
-
-    if (this.config.subject) {
-      prompt += `\n\nThe current subject focus is: ${this.config.subject}.`;
-    }
-
-    return prompt;
-  }
-
-  private async startReceiveLoop(): Promise<void> {
-    if (!this.session) {
-      console.error("No session available");
-      return;
-    }
-
+  private async handleMessage(message: any): Promise<void> {
     try {
-      console.log("Starting receive loop...");
+      // DEBUG: Log full message structure to find transcript location
+      console.log("=== GEMINI MESSAGE ===", JSON.stringify(message, null, 2));
 
-      const browserWs = this.session.conn;
-      const ws = browserWs?.ws as WebSocket;
+      // Check for user speech transcription in ALL possible locations
+      const possibleTranscripts = [
+        message?.serverContent?.inputTranscript,
+        message?.serverContent?.outputTranscript,
+        message?.inputTranscript,
+        message?.transcript,
+        message?.speechResults?.[0]?.alternatives?.[0]?.transcript,
+        message?.results?.[0]?.alternatives?.[0]?.transcript,
+        message?.serverContent?.modelTurn?.parts?.find((p: any) => p.transcript)?.transcript,
+      ];
 
-      if (!ws) {
-        console.error("No WebSocket found");
-        return;
+      const userTranscript = possibleTranscripts.find(t => t && typeof t === 'string' && t.trim());
+
+      if (userTranscript && userTranscript !== this.lastUserTranscript) {
+        console.log("✅ USER TRANSCRIPT FOUND:", userTranscript);
+        this.lastUserTranscript = userTranscript;
+        this.callbacks.onTranscript(userTranscript, "user");
+
+        await this.saveMessage({
+          role: "user",
+          type: "text",
+          content: userTranscript,
+        });
+
+        this.callbacks.onThinkingStart?.();
       }
 
-      console.log("WebSocket state:", ws.readyState, "(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)");
-
-      // Use addEventListener - this WON'T interfere with SDK's internal handlers
-      ws.addEventListener('message', (event: MessageEvent) => {
-        if (!this.isConnected) return;
-
-        try {
-          let data;
-          if (typeof event.data === 'string') {
-            data = JSON.parse(event.data);
-          } else if (event.data instanceof Blob) {
-            event.data.text().then(text => {
-              try {
-                this.handleServerMessage(JSON.parse(text));
-              } catch (e) {
-                console.error("Error parsing blob message:", e);
-              }
-            });
-            return;
-          } else if (event.data instanceof ArrayBuffer) {
-            const decoder = new TextDecoder();
-            data = JSON.parse(decoder.decode(event.data));
-          } else {
-            console.log("Unknown message type:", typeof event.data);
-            return;
-          }
-
-          this.handleServerMessage(data);
-        } catch (error) {
-          console.error("Error processing WebSocket message:", error);
-        }
-      });
-
-      ws.addEventListener('close', (event: CloseEvent) => {
-        console.log("WebSocket closed:", event.code, event.reason);
-        this.handleLoopEnd();
-      });
-
-      ws.addEventListener('error', (event: Event) => {
-        console.error("WebSocket error:", event);
-        this.callbacks.onError(new Error("WebSocket connection error"));
-      });
-
-      console.log("WebSocket listeners attached successfully");
-
-    } catch (error) {
-      console.error("Receive loop error:", error);
-      this.callbacks.onError(error instanceof Error ? error : new Error("Receive loop failed"));
-    }
-  }
-
-  private handleLoopEnd(): void {
-    if (this.isConnected) {
-      this.isConnected = false;
-      this.callbacks.onDisconnected("Session ended");
-    }
-  }
-
-  private handleServerMessage(message: LiveServerMessage): void {
-    try {
-      // Handle server content (audio/text responses)
       if (message.serverContent) {
         const content = message.serverContent;
 
-        if (content.modelTurn) {
-          const parts = content.modelTurn.parts || [];
+        // Handle model turn (audio/text)
+        if (content.modelTurn?.parts) {
+          // Start collecting audio if not already
+          if (!this.isCollectingAudio) {
+            this.isCollectingAudio = true;
+            this.audioChunksForStorage = [];
+            this.responseStartTime = Date.now(); // Track when response started
+            this.callbacks.onThinkingEnd?.();
+          }
 
-          for (const part of parts) {
-            // Handle text
-            if (part.text) {
-              this.callbacks.onTextResponse(part.text, !content.turnComplete);
-            }
-
+          for (const part of content.modelTurn.parts) {
             // Handle audio
-            if (part.inlineData && part.inlineData.mimeType?.includes("audio")) {
-              const audioData = this.base64ToArrayBuffer(part.inlineData.data || '');
+            if (part.inlineData?.mimeType?.includes("audio")) {
+              const audioData = this.base64ToArrayBuffer(part.inlineData.data || "");
+
+              // Collect for R2 storage
+              this.audioChunksForStorage.push(audioData);
+
+              // Play and callback
               this.callbacks.onAudioResponse(audioData);
               this.queueAudio(audioData);
+            }
+
+            // Handle text
+            if (part.text) {
+              this.currentAssistantText += part.text;
+              this.callbacks.onTextResponse(part.text, true);
+              this.callbacks.onTranscript(part.text, "assistant");
             }
           }
         }
 
-        // Handle turn complete
+        // Handle turn complete - save the full message with audio
         if (content.turnComplete) {
+          if (this.currentAssistantText || this.audioChunksForStorage.length > 0) {
+            await this.saveAssistantMessageWithAudio();
+          }
           this.callbacks.onTurnComplete();
+          // Reset for next turn
+          this.lastUserTranscript = "";
         }
 
         // Handle interruption
         if (content.interrupted) {
           this.clearAudioQueue();
+          this.currentAssistantText = "";
+          this.audioChunksForStorage = [];
+          this.isCollectingAudio = false;
           this.callbacks.onInterrupted();
         }
       }
-
-      // Handle tool calls
-      if (message.toolCall) {
-        const functionCalls = message.toolCall.functionCalls || [];
-        for (const call of functionCalls) {
-          this.callbacks.onToolCall(call.name, call.args || {}, call.id);
-        }
-      }
     } catch (error) {
-      console.error("Error handling server message:", error, message);
+      console.error("Error handling message:", error);
     }
   }
 
-  async sendAudio(audioData: ArrayBuffer): Promise<void> {
-    if (!this.session || !this.isConnected) {
-      console.warn("Cannot send audio: not connected");
-      return;
+  /**
+   * Save assistant message with audio to R2 via API
+   */
+  private async saveAssistantMessageWithAudio(): Promise<void> {
+    try {
+      this.messageCount++;
+
+      const messageContent = this.currentAssistantText || "[Audio response]";
+      const processingTime = this.responseStartTime ? Date.now() - this.responseStartTime : undefined;
+
+      // Use the service method that handles audio upload
+      const savedMessage = await this.dbService.addMessageWithAudio(
+        {
+          role: "assistant",
+          type: this.audioChunksForStorage.length > 0 ? "audio" : "text",
+          content: messageContent,
+          metadata: {
+            processingTime,
+            thinkingContext: `Analyzed input and generated ${this.audioChunksForStorage.length > 0 ? 'audio' : 'text'} response`,
+          },
+        },
+        this.audioChunksForStorage,
+        24000
+      );
+
+      if (savedMessage) {
+        this.callbacks.onMessageSaved(savedMessage);
+        this.callbacks.onTextResponse(messageContent, false);
+      }
+
+      // Reset accumulators
+      this.currentAssistantText = "";
+      this.audioChunksForStorage = [];
+      this.isCollectingAudio = false;
+    } catch (error) {
+      console.error("Error saving assistant message:", error);
+    }
+  }
+
+  private async saveMessage(message: Omit<LiveMessage, "id" | "createdAt">): Promise<void> {
+    try {
+      this.messageCount++;
+      const savedMessage = await this.dbService.addMessage(message);
+      if (savedMessage) {
+        this.callbacks.onMessageSaved(savedMessage);
+      }
+    } catch (error) {
+      console.error("Error saving message:", error);
+    }
+  }
+
+  private async handleDisconnect(): Promise<void> {
+    if (!this.isConnected) return; // Already disconnected
+
+    const duration = this.startTime
+      ? Math.round((Date.now() - this.startTime.getTime()) / 1000)
+      : 0;
+
+    try {
+      await this.dbService.updateSession({
+        status: "ended",
+        endedAt: new Date(),
+        duration,
+        messageCount: this.messageCount,
+      });
+    } catch (error) {
+      console.error("Error updating session on disconnect:", error);
     }
 
-    // Check WebSocket state before sending
-    const ws = this.session?.conn?.ws as WebSocket;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.warn("Cannot send audio: WebSocket not open, state:", ws?.readyState);
-      return;
+    this.isConnected = false;
+    this.callbacks.onDisconnected("Session ended");
+  }
+
+  private buildSystemPrompt(): string {
+    let prompt = VOICE_SYSTEM_PROMPT;
+
+    if (this.config.subject) {
+      prompt += `\n\nCURRENT SUBJECT: ${this.config.subject}`;
     }
+
+    if (this.config.language && this.config.language !== "en") {
+      prompt += `\n\nIMPORTANT: Respond in ${this.getLanguageName(this.config.language)} language.`;
+    }
+
+    if (this.config.educationLevel) {
+      prompt += `\n\nSTUDENT EDUCATION LEVEL: ${this.config.educationLevel}. Adjust your explanations accordingly.`;
+    }
+
+    return prompt;
+  }
+
+  private getLanguageName(code: string): string {
+    const names: Record<string, string> = {
+      en: "English",
+      hi: "Hindi",
+      ne: "Nepali",
+      es: "Spanish",
+      fr: "French",
+      ar: "Arabic",
+      zh: "Chinese",
+      bn: "Bengali",
+      pt: "Portuguese",
+      id: "Indonesian",
+    };
+    return names[code] || "English";
+  }
+
+  async sendAudio(audioData: ArrayBuffer): Promise<void> {
+    if (!this.session || !this.isConnected) return;
 
     try {
       const base64Audio = this.arrayBufferToBase64(audioData);
@@ -327,77 +363,127 @@ export class GeminiLiveSession {
     }
   }
 
-  async sendImage(imageData: string, mimeType: string = "image/jpeg"): Promise<void> {
-    if (!this.session || !this.isConnected) {
-      console.warn("Cannot send image: not connected");
-      return;
-    }
-
-    const ws = this.session?.conn?.ws as WebSocket;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.warn("Cannot send image: WebSocket not open, state:", ws?.readyState);
-      return;
-    }
-
-    try {
-      const base64Data = imageData.replace(/^data:image\/\w+;base64,/, "");
-
-      await this.session.sendRealtimeInput({
-        video: {
-          data: base64Data,
-          mimeType,
-        },
-      });
-    } catch (error) {
-      console.error("Error sending image:", error);
-    }
-  }
-
   async sendText(text: string): Promise<void> {
-    if (!this.session || !this.isConnected) {
-      return;
-    }
+    if (!this.session || !this.isConnected) return;
 
     try {
+      // Save user message
+      await this.saveMessage({
+        role: "user",
+        type: "text",
+        content: text,
+      });
+
+      this.callbacks.onTranscript(text, "user");
+
+      // Start thinking state
+      this.callbacks.onThinkingStart?.();
+
       await this.session.sendClientContent({
-        turns: [
-          {
-            role: "user",
-            parts: [{ text }],
-          },
-        ],
+        turns: [{ role: "user", parts: [{ text }] }],
         turnComplete: true,
       });
     } catch (error) {
       console.error("Error sending text:", error);
+      this.callbacks.onThinkingEnd?.();
     }
   }
 
-  async sendToolResult(toolCallId: string, result: any): Promise<void> {
-    if (!this.session || !this.isConnected) {
+  // Audio playback methods
+  private queueAudio(audioData: ArrayBuffer): void {
+    if (!this.audioContext) return;
+
+    try {
+      const samples = new Int16Array(audioData);
+      const floatSamples = new Float32Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        floatSamples[i] = samples[i] / 32768;
+      }
+
+      const audioBuffer = this.audioContext.createBuffer(1, floatSamples.length, 24000);
+      audioBuffer.getChannelData(0).set(floatSamples);
+
+      this.audioBufferQueue.push({
+        buffer: audioBuffer,
+        timestamp: Date.now(),
+      });
+
+      // Start scheduling once we have enough buffer
+      if (!this.isAudioScheduled && this.audioBufferQueue.length >= this.MIN_BUFFER_SIZE) {
+        this.scheduleBufferedAudio();
+      }
+    } catch (error) {
+      console.error("Error queuing audio:", error);
+    }
+  }
+
+  // Add new method for scheduled playback:
+  private scheduleBufferedAudio(): void {
+    if (!this.audioContext || this.audioBufferQueue.length === 0) {
+      this.isAudioScheduled = false;
+      this.isPlaying = false;
       return;
     }
 
-    try {
-      await this.session.sendToolResponse({
-        functionResponses: [
-          {
-            id: toolCallId,
-            response: result,
-          },
-        ],
-      });
-    } catch (error) {
-      console.error("Error sending tool result:", error);
+    this.isAudioScheduled = true;
+    this.isPlaying = true;
+
+    // Resume context if suspended
+    if (this.audioContext.state === "suspended") {
+      this.audioContext.resume();
     }
+
+    const currentTime = this.audioContext.currentTime;
+
+    // Initialize next play time if needed
+    if (this.nextPlayTime < currentTime) {
+      this.nextPlayTime = currentTime + this.BUFFER_AHEAD_TIME;
+    }
+
+    // Schedule all buffered chunks
+    while (this.audioBufferQueue.length > 0) {
+      const { buffer } = this.audioBufferQueue.shift()!;
+
+      const source = this.audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.audioContext.destination);
+
+      source.start(this.nextPlayTime);
+      this.nextPlayTime += buffer.duration;
+
+      // Track the last source for cleanup
+      this.currentSourceNode = source;
+    }
+
+    // Check for more audio after current batch finishes
+    const timeUntilEnd = this.nextPlayTime - this.audioContext.currentTime;
+    setTimeout(() => {
+      if (this.audioBufferQueue.length > 0) {
+        this.scheduleBufferedAudio();
+      } else {
+        this.isAudioScheduled = false;
+        this.isPlaying = false;
+      }
+    }, Math.max(0, (timeUntilEnd - 0.1) * 1000));
   }
 
-  private queueAudio(audioData: ArrayBuffer): void {
-    this.audioQueue.push(audioData);
-    if (!this.isPlaying) {
-      this.playNextAudio();
+  // Update clearAudioQueue:
+  private clearAudioQueue(): void {
+    this.audioBufferQueue = [];
+    this.nextPlayTime = 0;
+    this.isAudioScheduled = false;
+
+    if (this.currentSourceNode) {
+      try {
+        this.currentSourceNode.stop();
+      } catch {
+        // Ignore
+      }
+      this.currentSourceNode = null;
     }
+    this.isPlaying = false;
   }
+
 
   private async playNextAudio(): Promise<void> {
     if (this.audioQueue.length === 0 || !this.audioContext) {
@@ -413,16 +499,22 @@ export class GeminiLiveSession {
         await this.audioContext.resume();
       }
 
-      const audioBuffer = await this.pcmToAudioBuffer(audioData);
+      const samples = new Int16Array(audioData);
+      const floatSamples = new Float32Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        floatSamples[i] = samples[i] / 32768;
+      }
+
+      const audioBuffer = this.audioContext.createBuffer(1, floatSamples.length, 24000);
+      audioBuffer.getChannelData(0).set(floatSamples);
+
       this.currentSourceNode = this.audioContext.createBufferSource();
       this.currentSourceNode.buffer = audioBuffer;
       this.currentSourceNode.connect(this.audioContext.destination);
-
       this.currentSourceNode.onended = () => {
         this.currentSourceNode = null;
         this.playNextAudio();
       };
-
       this.currentSourceNode.start();
     } catch (error) {
       console.error("Error playing audio:", error);
@@ -430,41 +522,7 @@ export class GeminiLiveSession {
     }
   }
 
-  private clearAudioQueue(): void {
-    this.audioQueue = [];
-    if (this.currentSourceNode) {
-      try {
-        this.currentSourceNode.stop();
-      } catch (e) {
-        // Ignore if already stopped
-      }
-      this.currentSourceNode = null;
-    }
-    this.isPlaying = false;
-  }
-
-  private async pcmToAudioBuffer(pcmData: ArrayBuffer): Promise<AudioBuffer> {
-    if (!this.audioContext) {
-      throw new Error("AudioContext not initialized");
-    }
-
-    const samples = new Int16Array(pcmData);
-    const floatSamples = new Float32Array(samples.length);
-
-    for (let i = 0; i < samples.length; i++) {
-      floatSamples[i] = samples[i] / 32768;
-    }
-
-    const audioBuffer = this.audioContext.createBuffer(
-      1,
-      floatSamples.length,
-      24000
-    );
-    audioBuffer.getChannelData(0).set(floatSamples);
-
-    return audioBuffer;
-  }
-
+  // Utility methods
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     let binary = "";
@@ -484,39 +542,46 @@ export class GeminiLiveSession {
   }
 
   async disconnect(): Promise<void> {
-    console.log("Disconnecting from Gemini Live...");
-    this.isConnected = false;
+    console.log("Disconnecting...");
+
+    // Clear audio first
     this.clearAudioQueue();
 
+    // Mark as disconnected before async operations
+    const wasConnected = this.isConnected;
+    this.isConnected = false;
+
+    // Handle disconnect (update DB)
+    if (wasConnected) {
+      await this.handleDisconnect();
+    }
+
+    // Close session
     if (this.session) {
       try {
-        const ws = this.session?.conn?.ws as WebSocket;
-        // Only close if not already closed
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          await this.session.close();
-        } else {
-          console.log("WebSocket already closed, skipping close()");
-        }
-      } catch (error) {
-        // Ignore close errors - connection might already be closed
-        console.log("Session close handled:", error);
+        await this.session.close();
+      } catch {
+        // Ignore errors
       }
       this.session = null;
     }
 
-    if (this.audioContext) {
+    // Close audio context
+    if (this.audioContext && this.audioContext.state !== 'closed') {
       try {
         await this.audioContext.close();
-      } catch (error) {
-        console.error("Error closing audio context:", error);
+      } catch {
+        // Ignore errors
       }
-      this.audioContext = null;
     }
-
-    this.callbacks.onDisconnected();
+    this.audioContext = null;
   }
 
   get connected(): boolean {
     return this.isConnected;
+  }
+
+  getSessionDbId(): string | null {
+    return this.dbService.getSessionId();
   }
 }

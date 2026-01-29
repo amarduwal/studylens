@@ -1,6 +1,6 @@
 export const LIVE_CONFIG = {
   // Gemini model for Live API
-  MODEL: "gemini-2.0-flash-live-001",
+  MODEL: "gemini-2.5-flash-native-audio-latest",
 
   // Audio settings
   AUDIO: {

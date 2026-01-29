@@ -6,7 +6,8 @@ interface AudioVisualizerProps {
   audioLevel: number;
   isActive: boolean;
   type?: 'bars' | 'circle' | 'wave';
-  color?: string;
+  colorActive?: string; // Changed from color
+  colorInactive?: string;
   className?: string;
 }
 
@@ -14,7 +15,6 @@ export function AudioVisualizer({
   audioLevel,
   isActive,
   type = 'bars',
-  color = '#3B82F6',
   className = '',
 }: AudioVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,13 +27,17 @@ export function AudioVisualizer({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Get computed colors from CSS variables
+    const computedStyle = getComputedStyle(document.documentElement);
+    const primaryColor = `hsl(${computedStyle.getPropertyValue('--primary').trim()})`;
+    const mutedColor = `hsl(${computedStyle.getPropertyValue('--muted-foreground').trim()})`;
+
     const draw = () => {
       const { width, height } = canvas;
       ctx.clearRect(0, 0, width, height);
 
       if (!isActive) {
-        // Draw inactive state
-        ctx.fillStyle = '#4B5563';
+        ctx.fillStyle = mutedColor;
         if (type === 'bars') {
           const barCount = 5;
           const barWidth = width / (barCount * 2);
@@ -45,17 +49,17 @@ export function AudioVisualizer({
         return;
       }
 
-      ctx.fillStyle = color;
+      ctx.fillStyle = primaryColor;
 
       if (type === 'bars') {
         const barCount = 5;
         const barWidth = width / (barCount * 2);
 
         for (let i = 0; i < barCount; i++) {
-          const barHeight = Math.max(
-            4,
-            audioLevel * height * (0.5 + Math.random() * 0.5),
-          );
+          // Smoother random variation
+          const variation =
+            0.3 + Math.sin(Date.now() / 200 + i) * 0.2 + Math.random() * 0.2;
+          const barHeight = Math.max(4, audioLevel * height * variation);
           const x = i * barWidth * 2 + barWidth / 2;
           const y = (height - barHeight) / 2;
 
@@ -63,26 +67,6 @@ export function AudioVisualizer({
           ctx.roundRect(x, y, barWidth, barHeight, 2);
           ctx.fill();
         }
-      } else if (type === 'circle') {
-        const radius = Math.max(10, audioLevel * Math.min(width, height) * 0.4);
-        ctx.beginPath();
-        ctx.arc(width / 2, height / 2, radius, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Add pulse ring
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.5;
-        ctx.beginPath();
-        ctx.arc(
-          width / 2,
-          height / 2,
-          radius + 5 + audioLevel * 10,
-          0,
-          Math.PI * 2,
-        );
-        ctx.stroke();
-        ctx.globalAlpha = 1;
       }
 
       animationRef.current = requestAnimationFrame(draw);
@@ -95,7 +79,7 @@ export function AudioVisualizer({
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [audioLevel, isActive, type, color]);
+  }, [audioLevel, isActive, type]);
 
   return (
     <canvas ref={canvasRef} width={80} height={40} className={className} />
