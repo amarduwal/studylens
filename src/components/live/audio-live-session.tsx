@@ -90,6 +90,9 @@ export function AudioLiveSession({
   );
   const [isNewSession, setIsNewSession] = useState(true);
 
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
   const {
     sessions: previousSessions,
     isLoading: isLoadingSessions,
@@ -115,6 +118,40 @@ export function AudioLiveSession({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
+
+  // Add effect to handle tab visibility:
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && connectionState === 'connected') {
+        console.log('Tab hidden - connection may be affected');
+        // Optionally pause or handle background state
+      } else if (!document.hidden && connectionState === 'connected') {
+        console.log('Tab visible - verifying connection');
+        // Could trigger a health check here
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [connectionState]);
+
+  // Handle beforeunload to clean disconnect:
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (sessionRef.current?.connected) {
+        sessionRef.current.disconnect();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
 
   const addMessage = useCallback((message: LiveMessage) => {
     setMessages((prev) => {
@@ -268,21 +305,28 @@ export function AudioLiveSession({
         {
           onConnected: () => {
             setConnectionState('connected');
+            setIsReconnecting(false);
+            setReconnectAttempt(0);
             const dbId = session.getSessionDbId();
             if (dbId) {
               setCurrentSessionDbId(dbId);
               setIsNewSession(false);
             }
-            startAudioCapture(stream);
+            startAudioCapture(audioStreamRef.current!);
           },
           onDisconnected: () => {
             setConnectionState('disconnected');
             setIsThinking(false);
             setIsAiSpeaking(false);
+            setIsReconnecting(false);
           },
           onError: (err) => {
             setError(err.message);
-            setConnectionState('disconnected');
+            setIsReconnecting(false);
+            // Don't set disconnected if reconnecting
+            if (!isReconnecting) {
+              setConnectionState('disconnected');
+            }
             setIsThinking(false);
             setIsAiSpeaking(false);
           },
@@ -315,6 +359,18 @@ export function AudioLiveSession({
           onAudioLevel: (level: number) => {
             setAudioLevel(level);
           },
+          onReconnecting: (attempt) => {
+            setIsReconnecting(true);
+            setReconnectAttempt(attempt);
+            setConnectionState('connecting');
+            console.log(`Reconnecting... attempt ${attempt}`);
+          },
+          onReconnected: () => {
+            setIsReconnecting(false);
+            setReconnectAttempt(0);
+            setConnectionState('connected');
+            setError(null);
+          },
         },
       );
 
@@ -338,6 +394,7 @@ export function AudioLiveSession({
     startAudioCapture,
     stopAudioCapture,
     addMessage,
+    isReconnecting,
   ]);
 
   // function to start fresh session:
@@ -534,7 +591,6 @@ export function AudioLiveSession({
             )}
           </div>
         </div>
-
         {/* Main Content - Stacked on Mobile, Side by Side on Desktop */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Audio Section */}
@@ -547,10 +603,16 @@ export function AudioLiveSession({
             {/* Status */}
             <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4">
               {connectionState === 'disconnected' && 'Tap to start'}
-              {connectionState === 'connecting' && (
+              {connectionState === 'connecting' && !isReconnecting && (
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Connecting...
+                </span>
+              )}
+              {connectionState === 'connecting' && isReconnecting && (
+                <span className="flex items-center gap-2 text-[hsl(var(--warning))]">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Reconnecting... ({reconnectAttempt}/3)
                 </span>
               )}
               {connectionState === 'connected' &&
@@ -560,6 +622,7 @@ export function AudioLiveSession({
                     ? 'Speaking...'
                     : 'Listening...')}
             </p>
+
             {error && (
               <p className="text-[hsl(var(--destructive))] text-xs mb-4">
                 {error}
@@ -580,7 +643,11 @@ export function AudioLiveSession({
                         : isMuted
                           ? 'bg-[hsl(var(--destructive)/0.15)] ring-2 ring-[hsl(var(--destructive))]'
                           : 'bg-[hsl(var(--primary)/0.15)] ring-2 ring-[hsl(var(--primary))]'
-                    : 'bg-[hsl(var(--muted))]',
+                    : connectionState === 'connecting'
+                      ? isReconnecting
+                        ? 'bg-[hsl(var(--warning)/0.15)] ring-2 ring-[hsl(var(--warning))] animate-pulse'
+                        : 'bg-[hsl(var(--primary)/0.15)] ring-2 ring-[hsl(var(--primary))] animate-pulse'
+                      : 'bg-[hsl(var(--muted))]',
                 )}
               >
                 {/* Animated pulse ring when active */}
@@ -888,6 +955,22 @@ export function AudioLiveSession({
             </div>
           )}
         </div>
+
+        {connectionState === 'connected' && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <div
+              className={cn(
+                'w-2 h-2 rounded-full',
+                isReconnecting
+                  ? 'bg-[hsl(var(--warning))] animate-pulse'
+                  : 'bg-[hsl(var(--success))]',
+              )}
+            />
+            <span className="text-[hsl(var(--muted-foreground))]">
+              {isReconnecting ? 'Reconnecting...' : 'Connected'}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1003,7 +1086,6 @@ function MessageBubble({
             </div>
           )}
         </button>
-
         {/* Expanded Meta & Audio */}
         {isExpanded && (
           <div className="flex items-center gap-2 mt-1.5 text-xs text-[hsl(var(--muted-foreground))]">
@@ -1064,7 +1146,6 @@ function MessageBubble({
             </button>
           </div>
         )}
-
         {/* Collapsed: Just show play button if audio */}
         {!isExpanded && !isUser && message.audioUrl && (
           <button

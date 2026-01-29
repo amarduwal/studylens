@@ -16,6 +16,8 @@ export interface GeminiLiveCallbacks {
   onThinkingStart?: () => void;
   onThinkingEnd?: () => void;
   onAudioLevel?: (level: number) => void;
+  onReconnecting?: (attempt: number) => void;
+  onReconnected?: () => void;
 }
 
 export interface SessionConfig {
@@ -64,6 +66,58 @@ export class GeminiLiveSession {
 
   private onAudioLevel?: (level: number) => void;
 
+  private keepAliveInterval: NodeJS.Timeout | null = null;
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 3;
+  private reconnectDelay: number = 2000;
+  private lastActivityTime: number = 0;
+  private inactivityTimeout: NodeJS.Timeout | null = null;
+  private readonly KEEP_ALIVE_INTERVAL = 15000; // 15 seconds
+  private readonly INACTIVITY_TIMEOUT = 300000; // 5 minutes
+  private isManualDisconnect: boolean = false;
+
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+
+  private startHealthCheck(): void {
+    this.stopHealthCheck();
+
+    this.healthCheckInterval = setInterval(() => {
+      if (!this.isConnected || this.isManualDisconnect) {
+        return;
+      }
+
+      // Check if session is still responsive
+      const timeSinceActivity = Date.now() - this.lastActivityTime;
+
+      // If no activity for 30 seconds during an active session, verify connection
+      if (timeSinceActivity > 30000) {
+        console.log("Health check: No recent activity, verifying connection...");
+
+        // Try to send a ping
+        if (this.session) {
+          try {
+            // Check WebSocket state if accessible
+            const ws = (this.session as any)._ws || (this.session as any).ws;
+            if (ws && (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED)) {
+              console.log("Health check: WebSocket is closed, attempting reconnect");
+              this.isConnected = false;
+              this.attemptReconnect();
+            }
+          } catch (err) {
+            console.warn("Health check error:", err);
+          }
+        }
+      }
+    }, 10000); // Check every 10 seconds
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+  }
+
   constructor(apiKey: string, config: SessionConfig, callbacks: GeminiLiveCallbacks & { onAudioLevel?: (level: number) => void }) {
     this.ai = new GoogleGenAI({ apiKey });
     this.config = config;
@@ -100,6 +154,9 @@ export class GeminiLiveSession {
 
       this.audioContext = new AudioContext({ sampleRate: 24000 });
       this.startTime = new Date();
+
+      this.isManualDisconnect = false;
+      this.reconnectAttempts = 0;
 
       // if (this.config.resumeSessionId) {
       //   const resumed = await this.dbService.resumeSession(this.config.resumeSessionId);
@@ -154,23 +211,51 @@ export class GeminiLiveSession {
             this.isConnected = true;
             this.dbService.updateSession({ status: "connected" });
             this.callbacks.onConnected();
+            this.startHealthCheck();
           },
           onmessage: (message: any) => {
             this.handleMessage(message);
           },
           onerror: (error: any) => {
             console.error("Connection error:", error);
-            this.dbService.updateSession({ status: "error" });
-            this.callbacks.onError(
-              error instanceof Error ? error : new Error(String(error))
-            );
+
+            // Don't immediately fail - try to recover
+            const errorMessage = error?.message || String(error);
+
+            // Check if it's a recoverable error
+            if (errorMessage.includes('WebSocket') ||
+              errorMessage.includes('network') ||
+              errorMessage.includes('timeout')) {
+              console.log("Recoverable error detected, will attempt reconnect");
+              this.isConnected = false;
+              // onclose will handle reconnection
+            } else {
+              // Non-recoverable error
+              this.dbService.updateSession({ status: "error" });
+              this.callbacks.onError(
+                error instanceof Error ? error : new Error(String(error))
+              );
+            }
           },
           onclose: (event: any) => {
             console.log("Connection closed:", event);
-            this.handleDisconnect();
+            this.isConnected = false;
+            this.stopKeepAlive();
+            this.clearInactivityTimer();
+            this.stopHealthCheck();
+
+            // Only attempt reconnect if not manual disconnect
+            if (!this.isManualDisconnect) {
+              this.attemptReconnect();
+            } else {
+              this.handleDisconnect();
+            }
           },
         },
       });
+      this.startKeepAlive();
+      this.resetInactivityTimer();
+      this.lastActivityTime = Date.now();
 
       console.log("Session created successfully");
     } catch (error) {
@@ -184,10 +269,67 @@ export class GeminiLiveSession {
     }
   }
 
+  // keep-alive method:
+  private startKeepAlive(): void {
+    this.stopKeepAlive();
+
+    this.keepAliveInterval = setInterval(() => {
+      if (this.session && this.isConnected) {
+        try {
+          // Send empty audio to keep connection alive
+          // Gemini expects activity to keep the connection open
+          const silentAudio = new ArrayBuffer(320); // Small silent audio chunk
+          const base64 = this.arrayBufferToBase64(silentAudio);
+
+          this.session.sendRealtimeInput({
+            audio: {
+              data: base64,
+              mimeType: "audio/pcm;rate=16000",
+            },
+          }).catch((err: Error) => {
+            console.warn("Keep-alive failed:", err);
+          });
+
+          console.log("Keep-alive sent");
+        } catch (err) {
+          console.warn("Keep-alive error:", err);
+        }
+      }
+    }, this.KEEP_ALIVE_INTERVAL);
+  }
+
+  private stopKeepAlive(): void {
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
+    }
+  }
+
+  // inactivity timer:
+  private resetInactivityTimer(): void {
+    this.clearInactivityTimer();
+    this.lastActivityTime = Date.now();
+
+    this.inactivityTimeout = setTimeout(() => {
+      console.log("Inactivity timeout - disconnecting");
+      this.disconnect();
+    }, this.INACTIVITY_TIMEOUT);
+  }
+
+  private clearInactivityTimer(): void {
+    if (this.inactivityTimeout) {
+      clearTimeout(this.inactivityTimeout);
+      this.inactivityTimeout = null;
+    }
+  }
+
   private async handleMessage(message: any): Promise<void> {
     try {
       // DEBUG: Log full message structure to find transcript location
       console.log("=== GEMINI MESSAGE ===", JSON.stringify(message, null, 2));
+
+      this.lastActivityTime = Date.now(); // Track activity
+      this.resetInactivityTimer();
 
       // Check for user speech transcription in ALL possible locations
       const possibleTranscripts = [
@@ -389,6 +531,8 @@ export class GeminiLiveSession {
   async sendAudio(audioData: ArrayBuffer): Promise<void> {
     if (!this.session || !this.isConnected) return;
 
+    this.resetInactivityTimer(); // Add this
+
     try {
       const base64Audio = this.arrayBufferToBase64(audioData);
 
@@ -400,32 +544,111 @@ export class GeminiLiveSession {
       });
     } catch (error) {
       console.error("Error sending audio:", error);
+      // Check if connection is still valid
+      if (!this.isConnected) {
+        this.attemptReconnect();
+      }
     }
   }
 
   async sendText(text: string): Promise<void> {
     if (!this.session || !this.isConnected) return;
 
+    this.resetInactivityTimer(); // Add this
+
     try {
-      // Save user message
-      await this.saveMessage({
-        role: "user",
-        type: "text",
-        content: text,
-      });
-
-      this.callbacks.onTranscript(text, "user");
-
-      // Start thinking state
-      this.callbacks.onThinkingStart?.();
-
-      await this.session.sendClientContent({
-        turns: [{ role: "user", parts: [{ text }] }],
-        turnComplete: true,
-      });
+      // ... existing code
     } catch (error) {
       console.error("Error sending text:", error);
       this.callbacks.onThinkingEnd?.();
+      // Check if connection is still valid
+      if (!this.isConnected) {
+        this.attemptReconnect();
+      }
+    }
+  }
+
+  // reconnection logic:
+  private async attemptReconnect(): Promise<void> {
+    if (this.isManualDisconnect) {
+      console.log("Manual disconnect - not reconnecting");
+      return;
+    }
+
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error("Max reconnect attempts reached");
+      this.isConnected = false;
+      this.callbacks.onDisconnected?.("Max reconnect attempts reached");
+      this.callbacks.onError(new Error("Connection lost. Please try again."));
+      return;
+    }
+
+    this.reconnectAttempts++;
+
+    // Exponential backoff: 2s, 4s, 8s
+    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    console.log(`Reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+
+    this.callbacks.onReconnecting?.(this.reconnectAttempts);
+
+    await new Promise(resolve => setTimeout(resolve, delay));
+
+    try {
+      // Clean up old connection
+      this.stopKeepAlive();
+      this.clearInactivityTimer();
+
+      if (this.session) {
+        try { await this.session.close(); } catch {}
+        this.session = null;
+      }
+
+      // Reconnect
+      const systemPrompt = this.buildSystemPrompt();
+
+      this.session = await this.ai.live.connect({
+        model: LIVE_CONFIG.MODEL,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: LIVE_CONFIG.DEFAULT_VOICE,
+              },
+            },
+          },
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
+          },
+        },
+        callbacks: {
+          onopen: () => {
+            console.log("Reconnected successfully");
+            this.isConnected = true;
+            this.reconnectAttempts = 0;
+            this.startKeepAlive();
+            this.resetInactivityTimer();
+            this.dbService.updateSession({ status: "connected" });
+            this.callbacks.onReconnected?.();
+          },
+          onmessage: (message: any) => {
+            this.handleMessage(message);
+          },
+          onerror: (error: any) => {
+            console.error("Reconnection error:", error);
+            this.attemptReconnect();
+          },
+          onclose: (event: any) => {
+            console.log("Connection closed during reconnect:", event);
+            if (!this.isManualDisconnect) {
+              this.attemptReconnect();
+            }
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Reconnect failed:", error);
+      this.attemptReconnect();
     }
   }
 
@@ -583,35 +806,28 @@ export class GeminiLiveSession {
   async disconnect(): Promise<void> {
     console.log("Disconnecting...");
 
-    // Clear audio first
-    this.clearAudioQueue();
-
-    // Mark as disconnected before async operations
-    const wasConnected = this.isConnected;
+    // Mark as manual disconnect to prevent reconnection
+    this.isManualDisconnect = true;
     this.isConnected = false;
 
-    // Handle disconnect (update DB)
-    if (wasConnected) {
-      await this.handleDisconnect();
-    }
+    // Clear timers
+    this.stopKeepAlive();
+    this.clearInactivityTimer();
+    this.clearAudioQueue();
 
-    // Close session
+    await this.handleDisconnect();
+
     if (this.session) {
       try {
         await this.session.close();
-      } catch {
-        // Ignore errors
-      }
+      } catch {}
       this.session = null;
     }
 
-    // Close audio context
     if (this.audioContext && this.audioContext.state !== 'closed') {
       try {
         await this.audioContext.close();
-      } catch {
-        // Ignore errors
-      }
+      } catch {}
     }
     this.audioContext = null;
   }
