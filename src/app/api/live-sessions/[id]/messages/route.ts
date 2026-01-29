@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { liveSessionMessages, liveSessions } from "@/db/schema";
 import { eq, asc, sql } from "drizzle-orm";
+import { getSignedAudioUrl } from "@/lib/r2-audio";
 
 interface Params {
   params: { id: string };
@@ -17,13 +18,30 @@ export async function GET(request: NextRequest, { params }: Params) {
       .where(eq(liveSessionMessages.sessionId, id))
       .orderBy(asc(liveSessionMessages.createdAt));
 
-    // Convert duration string to number for client
-    const formattedMessages = messages.map(msg => ({
-      ...msg,
-      duration: msg.duration ? parseFloat(msg.duration) : null,
-    }));
+    // Refresh signed URLs for audio if using private bucket
+    const messagesWithFreshUrls = await Promise.all(
+      messages.map(async (msg) => {
+        let audioUrl = msg.audioUrl;
 
-    return NextResponse.json({ success: true, messages: formattedMessages });
+        // If we have an audioKey, generate fresh signed URL
+        // Only needed if using signed URLs (private bucket)
+        if (msg.audioKey && !process.env.R2_PUBLIC_URL) {
+          try {
+            audioUrl = await getSignedAudioUrl(msg.audioKey, 7200);
+          } catch (e) {
+            console.error("Failed to get signed URL:", e);
+          }
+        }
+
+        return {
+          ...msg,
+          audioUrl,
+          duration: msg.duration ? parseFloat(msg.duration) : null,
+        };
+      })
+    );
+
+    return NextResponse.json({ success: true, messages: messagesWithFreshUrls });
   } catch (error) {
     console.error("Failed to fetch messages:", error);
     return NextResponse.json(

@@ -1,87 +1,120 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
+import { cn } from '@/lib/utils';
 
 interface AudioVisualizerProps {
   audioLevel: number;
   isActive: boolean;
-  type?: 'bars' | 'circle' | 'wave';
-  colorActive?: string; // Changed from color
-  colorInactive?: string;
+  isSpeaking?: boolean;
   className?: string;
 }
 
 export function AudioVisualizer({
   audioLevel,
   isActive,
-  type = 'bars',
+  isSpeaking = false,
   className = '',
 }: AudioVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number | undefined>(undefined);
+  const animationRef = useRef<number>(0);
+  const barsRef = useRef<number[]>([0, 0, 0, 0, 0]);
+  const targetBarsRef = useRef<number[]>([0, 0, 0, 0, 0]);
 
-  useEffect(() => {
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Get computed colors from CSS variables
+    const { width, height } = canvas;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Set canvas size for high DPI
+    if (canvas.width !== width * dpr) {
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
+    }
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Get theme colors
     const computedStyle = getComputedStyle(document.documentElement);
     const primaryColor = `hsl(${computedStyle.getPropertyValue('--primary').trim()})`;
+    const successColor = `hsl(${computedStyle.getPropertyValue('--success').trim()})`;
     const mutedColor = `hsl(${computedStyle.getPropertyValue('--muted-foreground').trim()})`;
 
-    const draw = () => {
-      const { width, height } = canvas;
-      ctx.clearRect(0, 0, width, height);
+    const barCount = 5;
+    const barWidth = width / (barCount * 2.5);
+    const gap = barWidth * 0.5;
+    const totalWidth = barCount * barWidth + (barCount - 1) * gap;
+    const startX = (width - totalWidth) / 2;
 
-      if (!isActive) {
-        ctx.fillStyle = mutedColor;
-        if (type === 'bars') {
-          const barCount = 5;
-          const barWidth = width / (barCount * 2);
-          for (let i = 0; i < barCount; i++) {
-            const x = i * barWidth * 2 + barWidth / 2;
-            ctx.fillRect(x, height / 2 - 2, barWidth, 4);
-          }
-        }
-        return;
+    if (!isActive) {
+      // Inactive state - flat bars
+      ctx.fillStyle = mutedColor;
+      for (let i = 0; i < barCount; i++) {
+        const x = startX + i * (barWidth + gap);
+        const barHeight = 4;
+        const y = (height - barHeight) / 2;
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, barHeight, 2);
+        ctx.fill();
       }
+      return;
+    }
 
-      ctx.fillStyle = primaryColor;
+    // Calculate target bar heights based on audio level
+    const baseHeight = height * 0.15;
+    const maxAddHeight = height * 0.7;
 
-      if (type === 'bars') {
-        const barCount = 5;
-        const barWidth = width / (barCount * 2);
+    for (let i = 0; i < barCount; i++) {
+      // Create wave pattern
+      const waveOffset = Math.sin(Date.now() / 150 + i * 0.8) * 0.3;
+      const variation = 0.5 + waveOffset + Math.random() * 0.2;
+      targetBarsRef.current[i] =
+        baseHeight + audioLevel * maxAddHeight * variation;
+    }
 
-        for (let i = 0; i < barCount; i++) {
-          // Smoother random variation
-          const variation =
-            0.3 + Math.sin(Date.now() / 200 + i) * 0.2 + Math.random() * 0.2;
-          const barHeight = Math.max(4, audioLevel * height * variation);
-          const x = i * barWidth * 2 + barWidth / 2;
-          const y = (height - barHeight) / 2;
+    // Smooth interpolation
+    for (let i = 0; i < barCount; i++) {
+      const diff = targetBarsRef.current[i] - barsRef.current[i];
+      barsRef.current[i] += diff * 0.3; // Smoothing factor
+    }
 
-          ctx.beginPath();
-          ctx.roundRect(x, y, barWidth, barHeight, 2);
-          ctx.fill();
-        }
-      }
+    // Choose color based on state
+    ctx.fillStyle = isSpeaking ? successColor : primaryColor;
 
-      animationRef.current = requestAnimationFrame(draw);
-    };
+    // Draw bars
+    for (let i = 0; i < barCount; i++) {
+      const x = startX + i * (barWidth + gap);
+      const barHeight = Math.max(4, barsRef.current[i]);
+      const y = (height - barHeight) / 2;
 
+      ctx.beginPath();
+      ctx.roundRect(x, y, barWidth, barHeight, barWidth / 2);
+      ctx.fill();
+    }
+
+    animationRef.current = requestAnimationFrame(draw);
+  }, [audioLevel, isActive, isSpeaking]);
+
+  useEffect(() => {
     draw();
-
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [audioLevel, isActive, type]);
+  }, [draw]);
 
   return (
-    <canvas ref={canvasRef} width={80} height={40} className={className} />
+    <canvas
+      ref={canvasRef}
+      className={cn('w-full h-full', className)}
+      style={{ width: '100%', height: '100%' }}
+    />
   );
 }

@@ -15,6 +15,7 @@ export interface GeminiLiveCallbacks {
   onMessageSaved: (message: LiveMessage) => void;
   onThinkingStart?: () => void;
   onThinkingEnd?: () => void;
+  onAudioLevel?: (level: number) => void;
 }
 
 export interface SessionConfig {
@@ -72,6 +73,27 @@ export class GeminiLiveSession {
     this.onAudioLevel = callbacks.onAudioLevel;
   }
 
+  private calculateAudioLevel(audioData: ArrayBuffer): number {
+    const samples = new Int16Array(audioData);
+    let sum = 0;
+    for (let i = 0; i < samples.length; i++) {
+      sum += Math.abs(samples[i]);
+    }
+    const average = sum / samples.length;
+    // Normalize to 0-1 range
+    return Math.min(1, average / 16384);
+  }
+
+  private async createNewSession(): Promise<void> {
+    await this.dbService.createSession({
+      userId: this.config.userId,
+      sessionId: this.config.guestSessionId || this.clientSessionId,
+      language: this.config.language,
+      educationLevel: this.config.educationLevel,
+      subject: this.config.subject,
+    });
+  }
+
   async connect(): Promise<void> {
     try {
       console.log("Connecting to Gemini Live API...");
@@ -79,21 +101,35 @@ export class GeminiLiveSession {
       this.audioContext = new AudioContext({ sampleRate: 24000 });
       this.startTime = new Date();
 
+      // if (this.config.resumeSessionId) {
+      //   const resumed = await this.dbService.resumeSession(this.config.resumeSessionId);
+      //   if (!resumed) {
+      //     throw new Error("Failed to resume session");
+      //   }
+      // } else {
+      //   await this.dbService.createSession({
+      //     userId: this.config.userId,
+      //     sessionId: this.config.guestSessionId || this.clientSessionId,
+      //     language: this.config.language,
+      //     educationLevel: this.config.educationLevel,
+      //     subject: this.config.subject,
+      //   });
+      // }
+      // Resume existing session or create new one
       if (this.config.resumeSessionId) {
+        console.log("Resuming session:", this.config.resumeSessionId);
         const resumed = await this.dbService.resumeSession(this.config.resumeSessionId);
-        if (!resumed) {
-          throw new Error("Failed to resume session");
+        if (resumed) {
+          // Load existing messages count
+          const messages = await this.dbService.getMessages();
+          this.messageCount = messages.length;
+        } else {
+          console.log("Failed to resume, creating new session");
+          await this.createNewSession();
         }
       } else {
-        await this.dbService.createSession({
-          userId: this.config.userId,
-          sessionId: this.config.guestSessionId || this.clientSessionId,
-          language: this.config.language,
-          educationLevel: this.config.educationLevel,
-          subject: this.config.subject,
-        });
+        await this.createNewSession();
       }
-
 
       const systemPrompt = this.buildSystemPrompt();
 
@@ -198,10 +234,16 @@ export class GeminiLiveSession {
             if (part.inlineData?.mimeType?.includes("audio")) {
               const audioData = this.base64ToArrayBuffer(part.inlineData.data || "");
 
-              // Collect for R2 storage
-              this.audioChunksForStorage.push(audioData);
+              // Calculate and emit audio level
+              const samples = new Int16Array(audioData);
+              let sum = 0;
+              for (let i = 0; i < samples.length; i++) {
+                sum += Math.abs(samples[i]);
+              }
+              const level = Math.min(1, (sum / samples.length) / 8000);
+              this.callbacks.onAudioLevel?.(level);
 
-              // Play and callback
+              this.audioChunksForStorage.push(audioData);
               this.callbacks.onAudioResponse(audioData);
               this.queueAudio(audioData);
             }
@@ -277,7 +319,6 @@ export class GeminiLiveSession {
       console.error("Error saving assistant message:", error);
     }
   }
-
   private async saveMessage(message: Omit<LiveMessage, "id" | "createdAt">): Promise<void> {
     try {
       this.messageCount++;
@@ -311,7 +352,6 @@ export class GeminiLiveSession {
     this.isConnected = false;
     this.callbacks.onDisconnected("Session ended");
   }
-
   private buildSystemPrompt(): string {
     let prompt = VOICE_SYSTEM_PROMPT;
 
@@ -483,7 +523,6 @@ export class GeminiLiveSession {
     }
     this.isPlaying = false;
   }
-
 
   private async playNextAudio(): Promise<void> {
     if (this.audioQueue.length === 0 || !this.audioContext) {

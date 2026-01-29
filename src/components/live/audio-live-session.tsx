@@ -21,6 +21,7 @@ import {
   ChevronDown,
   Clock,
   ChevronUp,
+  Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GeminiLiveSession } from '@/lib/live/gemini-live-client';
@@ -84,6 +85,11 @@ export function AudioLiveSession({
     new Set(),
   );
 
+  const [currentSessionDbId, setCurrentSessionDbId] = useState<string | null>(
+    null,
+  );
+  const [isNewSession, setIsNewSession] = useState(true);
+
   const {
     sessions: previousSessions,
     isLoading: isLoadingSessions,
@@ -131,6 +137,7 @@ export function AudioLiveSession({
         // Add analyser for mic visualization
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.5;
         source.connect(analyser);
 
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -138,13 +145,23 @@ export function AudioLiveSession({
 
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-        processor.onaudioprocess = (e) => {
-          // Calculate mic level for visualization
+        // Separate interval for smoother visualization
+        const levelInterval = setInterval(() => {
+          if (!analyser) return;
           analyser.getByteFrequencyData(dataArray);
-          const average =
-            dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          setMicLevel(average / 255);
 
+          // Calculate RMS for more accurate level
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i] * dataArray[i];
+          }
+          const rms = Math.sqrt(sum / dataArray.length);
+          const normalizedLevel = Math.min(1, rms / 128);
+
+          setMicLevel(normalizedLevel);
+        }, 50); // Update every 50ms
+
+        processor.onaudioprocess = (e) => {
           if (isMuted || !sessionRef.current?.connected) return;
 
           const inputData = e.inputBuffer.getChannelData(0);
@@ -162,6 +179,9 @@ export function AudioLiveSession({
 
         source.connect(processor);
         processor.connect(audioContext.destination);
+
+        // Store interval for cleanup
+        (audioContextRef.current as any)._levelInterval = levelInterval;
       } catch (err) {
         console.error('Audio capture error:', err);
       }
@@ -169,44 +189,46 @@ export function AudioLiveSession({
     [isMuted],
   );
 
+  // Update stopAudioCapture to clear interval:
   const stopAudioCapture = useCallback(() => {
-    // Prevent multiple cleanup calls
     if (isCleaningUpRef.current) return;
     isCleaningUpRef.current = true;
 
     try {
-      // Disconnect processor first
+      // Clear level interval
+      if (
+        audioContextRef.current &&
+        (audioContextRef.current as any)._levelInterval
+      ) {
+        clearInterval((audioContextRef.current as any)._levelInterval);
+      }
+
       if (audioProcessorRef.current) {
         try {
           audioProcessorRef.current.disconnect();
-        } catch (e) {
-          // Ignore disconnect errors
-        }
+        } catch (e) {}
         audioProcessorRef.current = null;
       }
 
-      // Close audio context only if it's not already closed
       if (audioContextRef.current) {
         const state = audioContextRef.current.state;
         if (state !== 'closed') {
-          audioContextRef.current.close().catch(() => {
-            // Ignore close errors
-          });
+          audioContextRef.current.close().catch(() => {});
         }
         audioContextRef.current = null;
       }
 
-      // Stop media stream tracks
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((track) => {
           try {
             track.stop();
-          } catch (e) {
-            // Ignore stop errors
-          }
+          } catch (e) {}
         });
         audioStreamRef.current = null;
       }
+
+      setMicLevel(0);
+      setAudioLevel(0);
     } finally {
       isCleaningUpRef.current = false;
     }
@@ -233,10 +255,24 @@ export function AudioLiveSession({
       // Create session
       const session = new GeminiLiveSession(
         apiKey,
-        { userId, language, subject, educationLevel },
+        {
+          userId,
+          guestSessionId,
+          language,
+          subject,
+          educationLevel,
+          resumeSessionId: isNewSession
+            ? undefined
+            : currentSessionDbId || undefined,
+        },
         {
           onConnected: () => {
             setConnectionState('connected');
+            const dbId = session.getSessionDbId();
+            if (dbId) {
+              setCurrentSessionDbId(dbId);
+              setIsNewSession(false);
+            }
             startAudioCapture(stream);
           },
           onDisconnected: () => {
@@ -293,13 +329,44 @@ export function AudioLiveSession({
   }, [
     apiKey,
     userId,
+    guestSessionId,
     language,
     subject,
     educationLevel,
-    addMessage,
+    currentSessionDbId,
+    isNewSession,
     startAudioCapture,
     stopAudioCapture,
+    addMessage,
   ]);
+
+  // function to start fresh session:
+  const startNewSession = useCallback(() => {
+    setCurrentSessionDbId(null);
+    setIsNewSession(true);
+    setMessages([]);
+    setExpandedMessages(new Set());
+  }, []);
+
+  // function to load and resume a previous session:
+  const resumePreviousSession = useCallback(async (sessionDbId: string) => {
+    try {
+      // Load messages first
+      const response = await fetch(
+        `/api/live-sessions/${sessionDbId}/messages`,
+      );
+      const data = await response.json();
+
+      if (data.success) {
+        setMessages(data.messages);
+        setCurrentSessionDbId(sessionDbId);
+        setIsNewSession(false);
+        setShowHistory(false);
+      }
+    } catch (error) {
+      console.error('Failed to resume session:', error);
+    }
+  }, []);
 
   const endSession = useCallback(async () => {
     // Stop audio capture first
@@ -426,6 +493,22 @@ export function AudioLiveSession({
               <MessageSquare className="w-4 h-4" />
             </button>
             <button
+              onClick={() => {
+                startNewSession();
+                setShowHistory(false);
+              }}
+              className="w-full p-3 rounded-lg text-left transition-colors mb-2
+             bg-[hsl(var(--primary)/0.1)] border border-[hsl(var(--primary)/0.3)]
+             hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.15)]"
+            >
+              <div className="flex items-center gap-2">
+                <Plus className="w-4 h-4 text-[hsl(var(--primary))]" />
+                <span className="text-sm font-medium text-[hsl(var(--primary))]">
+                  Start New Session
+                </span>
+              </div>
+            </button>
+            <button
               onClick={() => setShowHistory(!showHistory)}
               className={cn(
                 'p-2 rounded-lg transition-colors',
@@ -485,57 +568,70 @@ export function AudioLiveSession({
 
             {/* Visualizer Circle */}
             <div className="relative w-32 h-32 mb-6">
-              {/* Background Ring */}
+              {/* Background Ring with Pulse */}
               <div
                 className={cn(
                   'absolute inset-0 rounded-full transition-all duration-300',
                   connectionState === 'connected'
                     ? isThinking
-                      ? 'bg-[hsl(var(--warning)/0.1)] ring-2 ring-[hsl(var(--warning))]'
+                      ? 'bg-[hsl(var(--warning)/0.15)] ring-2 ring-[hsl(var(--warning))]'
                       : isAiSpeaking
-                        ? 'bg-[hsl(var(--success)/0.1)] ring-2 ring-[hsl(var(--success))]'
+                        ? 'bg-[hsl(var(--success)/0.15)] ring-2 ring-[hsl(var(--success))]'
                         : isMuted
-                          ? 'bg-[hsl(var(--destructive)/0.1)] ring-2 ring-[hsl(var(--destructive))]'
-                          : 'bg-[hsl(var(--primary)/0.1)] ring-2 ring-[hsl(var(--primary))]'
+                          ? 'bg-[hsl(var(--destructive)/0.15)] ring-2 ring-[hsl(var(--destructive))]'
+                          : 'bg-[hsl(var(--primary)/0.15)] ring-2 ring-[hsl(var(--primary))]'
                     : 'bg-[hsl(var(--muted))]',
                 )}
-              />
-
-              {/* Audio Visualizer - Show when AI speaking or user talking */}
-              {connectionState === 'connected' &&
-                (isAiSpeaking || (!isMuted && !isThinking)) && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <AudioVisualizer
-                      audioLevel={isAiSpeaking ? audioLevel : micLevel}
-                      isActive={isAiSpeaking || !isMuted}
-                      type="bars"
-                      className="w-20 h-10"
-                    />
-                  </div>
-                )}
-
-              {/* Center Icon - Show when not visualizing */}
-              {!(
-                connectionState === 'connected' &&
-                (isAiSpeaking || (!isMuted && !isThinking))
-              ) && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  {isThinking ? (
-                    <Loader2 className="w-10 h-10 text-[hsl(var(--warning))] animate-spin" />
-                  ) : isMuted ? (
-                    <MicOff className="w-10 h-10 text-[hsl(var(--destructive))]" />
-                  ) : (
-                    <Mic
+              >
+                {/* Animated pulse ring when active */}
+                {connectionState === 'connected' &&
+                  (isAiSpeaking || (!isMuted && !isThinking)) && (
+                    <div
                       className={cn(
-                        'w-10 h-10',
-                        connectionState === 'connected'
-                          ? 'text-[hsl(var(--primary))]'
-                          : 'text-[hsl(var(--muted-foreground))]',
+                        'absolute inset-0 rounded-full animate-ping opacity-20',
+                        isAiSpeaking
+                          ? 'bg-[hsl(var(--success))]'
+                          : 'bg-[hsl(var(--primary))]',
                       )}
+                      style={{ animationDuration: '1.5s' }}
                     />
                   )}
-                </div>
-              )}
+              </div>
+
+              {/* Content */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                {connectionState === 'connected' &&
+                (isAiSpeaking || (!isMuted && !isThinking)) ? (
+                  // Show visualizer when speaking or listening
+                  <div className="w-20 h-12">
+                    <AudioVisualizer
+                      audioLevel={isAiSpeaking ? audioLevel : micLevel}
+                      isActive={true}
+                      isSpeaking={isAiSpeaking}
+                    />
+                  </div>
+                ) : (
+                  // Show icon otherwise
+                  <>
+                    {isThinking ? (
+                      <Loader2 className="w-10 h-10 text-[hsl(var(--warning))] animate-spin" />
+                    ) : connectionState === 'connecting' ? (
+                      <Loader2 className="w-10 h-10 text-[hsl(var(--primary))] animate-spin" />
+                    ) : isMuted ? (
+                      <MicOff className="w-10 h-10 text-[hsl(var(--destructive))]" />
+                    ) : (
+                      <Mic
+                        className={cn(
+                          'w-10 h-10',
+                          connectionState === 'connected'
+                            ? 'text-[hsl(var(--primary))]'
+                            : 'text-[hsl(var(--muted-foreground))]',
+                        )}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Controls */}
@@ -632,12 +728,12 @@ export function AudioLiveSession({
                   previousSessions.map((session) => (
                     <button
                       key={session.id}
-                      onClick={() => loadSessionMessages(session.id)}
+                      onClick={() => resumePreviousSession(session.id)}
                       className={cn(
                         'w-full p-3 rounded-lg text-left transition-colors',
                         'bg-[hsl(var(--background))] border border-[hsl(var(--border))]',
                         'hover:border-[hsl(var(--primary))]',
-                        viewingSessionId === session.id &&
+                        currentSessionDbId === session.id &&
                           'border-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.05)]',
                       )}
                     >
@@ -645,16 +741,23 @@ export function AudioLiveSession({
                         <span className="text-sm font-medium">
                           {session.subject || 'General'}
                         </span>
-                        <span
-                          className={cn(
-                            'text-xs px-2 py-0.5 rounded-full',
-                            session.status === 'ended'
-                              ? 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'
-                              : 'bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]',
+                        <div className="flex items-center gap-2">
+                          {currentSessionDbId === session.id && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]">
+                              Current
+                            </span>
                           )}
-                        >
-                          {session.status}
-                        </span>
+                          <span
+                            className={cn(
+                              'text-xs px-2 py-0.5 rounded-full',
+                              session.status === 'ended'
+                                ? 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'
+                                : 'bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]',
+                            )}
+                          >
+                            {session.status}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-xs text-[hsl(var(--muted-foreground))]">
                         <MessageSquare className="w-3 h-3" />
