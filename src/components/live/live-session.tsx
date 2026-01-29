@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMediaStream } from '@/hooks/live/use-media-stream';
-import { useLiveSession } from '@/hooks/live/use-live-session';
+import { useLiveSession } from '@/hooks/live/use-live-session-old';
 import { useScreenShare } from '@/hooks/live/use-screen-share';
 import { VideoPreview } from './video-preview';
 import { TranscriptPanel } from './transcript-panel';

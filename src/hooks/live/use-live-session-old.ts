@@ -8,7 +8,7 @@ import {
   SessionConfig,
   SessionStatus
 } from "@/types/live";
-import { GeminiLiveSession, GeminiLiveCallbacks } from "@/lib/live/gemini-live-client";
+import { GeminiLiveSession, GeminiLiveCallbacks } from "@/lib/live/gemini-live-client-old";
 
 interface UseLiveSessionReturn extends LiveSessionState {
   connect: () => Promise<void>;

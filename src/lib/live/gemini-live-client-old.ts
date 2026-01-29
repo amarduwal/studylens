@@ -39,23 +39,23 @@ export class GeminiLiveSession {
       // Initialize audio context
       this.audioContext = new AudioContext({ sampleRate: 24000 });
 
-      this.session = await this.ai.live.connect({
-        model: LIVE_CONFIG.MODEL,
-        config: {
-          responseModalities: [Modality.AUDIO, Modality.TEXT],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: LIVE_CONFIG.DEFAULT_VOICE,
-              },
-            },
-          },
-          systemInstruction: {
-            parts: [{ text: systemPrompt }],
-          },
-          tools: getToolsForGemini(),
-        },
-      });
+      // this.session = await this.ai.live.connect({
+      //   model: LIVE_CONFIG.MODEL,
+      //   config: {
+      //     responseModalities: [Modality.AUDIO, Modality.TEXT],
+      //     speechConfig: {
+      //       voiceConfig: {
+      //         prebuiltVoiceConfig: {
+      //           voiceName: LIVE_CONFIG.DEFAULT_VOICE,
+      //         },
+      //       },
+      //     },
+      //     systemInstruction: {
+      //       parts: [{ text: systemPrompt }],
+      //     },
+      //     tools: getToolsForGemini(),
+      //   },
+      // });
 
       // Check WebSocket is actually open
       const ws = this.session?.conn?.ws as WebSocket;
@@ -289,12 +289,12 @@ export class GeminiLiveSession {
       }
 
       // Handle tool calls
-      if (message.toolCall) {
-        const functionCalls = message.toolCall.functionCalls || [];
-        for (const call of functionCalls) {
-          this.callbacks.onToolCall(call.name, call.args || {}, call.id);
-        }
-      }
+      // if (message.toolCall) {
+      //   const functionCalls = message.toolCall.functionCalls || [];
+      //   for (const call of functionCalls) {
+      //     this.callbacks.onToolCall(call.name, call.args || {}, call.id);
+      //   }
+      // }
     } catch (error) {
       console.error("Error handling server message:", error, message);
     }

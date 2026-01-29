@@ -68,7 +68,7 @@ export function ControlBar({
           )}
         </Button>
 
-        {isAudioEnabled && (
+        {/* {isAudioEnabled && (
           <AudioVisualizer
             audioLevel={audioLevel}
             isActive={isConnected && isAudioEnabled}
@@ -76,7 +76,7 @@ export function ControlBar({
             color="#3B82F6"
             className="w-20 h-10"
           />
-        )}
+        )} */}
       </div>
 
       {/* Video Toggle */}

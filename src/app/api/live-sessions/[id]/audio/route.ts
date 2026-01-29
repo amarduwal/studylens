@@ -21,15 +21,11 @@ const r2Client = new S3Client({
 const BUCKET_NAME = process.env.R2_BUCKET_NAME!;
 const PUBLIC_URL = process.env.R2_PUBLIC_URL!;
 
-interface Params {
-  params: { id: string };
-}
-
 /**
  * POST - Upload audio and create message
  * Accepts multipart form data with audio file
  */
-export async function POST(request: NextRequest, { params }: Params) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: sessionId } = await params;
 

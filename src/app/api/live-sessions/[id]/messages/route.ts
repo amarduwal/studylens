@@ -4,11 +4,7 @@ import { liveSessionMessages, liveSessions } from "@/db/schema";
 import { eq, asc, sql } from "drizzle-orm";
 import { getSignedAudioUrl } from "@/lib/r2-audio";
 
-interface Params {
-  params: { id: string };
-}
-
-export async function GET(request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
 
@@ -51,7 +47,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const body = await request.json();

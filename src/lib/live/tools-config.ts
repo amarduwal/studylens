@@ -1,6 +1,5 @@
 import { FunctionDeclaration } from "@/types/live";
 
-
 export const TUTOR_TOOLS: FunctionDeclaration[] = [
   {
     name: "draw_diagram",
