@@ -78,6 +78,16 @@ export class GeminiLiveSession {
 
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
+  private textToAudioData(text: string): ArrayBuffer {
+    // Create a simple audio representation of silence
+    // The API will see activity and the text content in the message
+    const sampleRate = 16000;
+    const duration = 0.1; // 100ms of silence
+    const samples = sampleRate * duration;
+    const buffer = new ArrayBuffer(samples * 2); // 16-bit = 2 bytes
+    return buffer;
+  }
+
   private startHealthCheck(): void {
     this.stopHealthCheck();
 
@@ -552,19 +562,35 @@ export class GeminiLiveSession {
   }
 
   async sendText(text: string): Promise<void> {
-    if (!this.session || !this.isConnected) return;
+    if (!this.session || !this.isConnected) {
+      console.error("Cannot send text: not connected");
+      return;
+    }
 
-    this.resetInactivityTimer(); // Add this
+    this.resetInactivityTimer();
 
     try {
-      // ... existing code
+      // Save user message first
+      await this.saveMessage({
+        role: "user",
+        type: "text",
+        content: text,
+      });
+
+      this.callbacks.onTranscript(text, "user");
+      this.callbacks.onThinkingStart?.();
+
+      console.log("Sending text via session.sendClientContent()");
+      await this.session.sendClientContent({
+        turns: [{ role: "user", parts: [{ text }] }],
+        turnComplete: true,
+      });
+
+      console.log("Text sent successfully:", text);
     } catch (error) {
       console.error("Error sending text:", error);
       this.callbacks.onThinkingEnd?.();
-      // Check if connection is still valid
-      if (!this.isConnected) {
-        this.attemptReconnect();
-      }
+      this.callbacks.onError(error instanceof Error ? error : new Error("Failed to send message"));
     }
   }
 
@@ -833,6 +859,21 @@ export class GeminiLiveSession {
   }
 
   get connected(): boolean {
+    // Also check if session exists and is open
+    if (!this.session) return false;
+
+    try {
+      // Check WebSocket state if accessible
+      const ws = (this.session as any)._ws ||
+        (this.session as any).ws ||
+        (this.session as any)._websocket;
+      if (ws && ws.readyState !== WebSocket.OPEN) {
+        this.isConnected = false;
+      }
+    } catch (e) {
+      // Ignore
+    }
+
     return this.isConnected;
   }
 

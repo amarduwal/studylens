@@ -459,7 +459,11 @@ export function AudioLiveSession({
 
     const text = textInput.trim();
     setTextInput('');
-    await sessionRef.current.sendText(text);
+    try {
+      await sessionRef.current.sendText(text);
+    } catch (err) {
+      console.error('Failed to send text:', err);
+    }
   }, [textInput]);
 
   const handleKeyPress = useCallback(
