@@ -47,6 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const audioFile = formData.get("audio") as File | null;
     const content = formData.get("content") as string || "[Audio response]";
     const role = formData.get("role") as string || "assistant";
+    const durationStr = formData.get("duration") as string;
     const metadataStr = formData.get("metadata") as string;
 
     let metadata: Record<string, unknown> = {};
@@ -60,10 +61,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     let audioUrl: string | null = null;
     let audioKey: string | null = null;
-    let duration: number | null = null;
+    let duration: number | null = durationStr ? parseFloat(durationStr) : null;
 
     // Upload audio if provided
     if (audioFile && audioFile.size > 0) {
+      console.log(`📥 Received audio file: ${audioFile.size} bytes`);
+
       const buffer = Buffer.from(await audioFile.arrayBuffer());
 
       // Generate storage key
@@ -84,11 +87,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         CacheControl: "public, max-age=31536000",
         Metadata: {
           sessionId,
+          duration: duration?.toString() || "",
           uploadedAt: new Date().toISOString(),
         },
       });
 
       await r2Client.send(command);
+      console.log(`✅ Audio uploaded to R2: ${audioKey}`);
 
       audioUrl = `${PUBLIC_URL}/${audioKey}`;
 

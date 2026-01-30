@@ -156,6 +156,8 @@ export class LiveSessionService {
     }
 
     try {
+      console.log(`🔧 Combining ${audioChunks.length} audio chunks...`);
+
       // Combine all audio chunks
       const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
       const combinedBuffer = new ArrayBuffer(totalLength);
@@ -169,6 +171,11 @@ export class LiveSessionService {
 
       // Convert PCM to WAV format in browser
       const wavBuffer = this.pcmToWav(new Int16Array(combinedBuffer), sampleRate);
+      console.log(`🎵 WAV size: ${(wavBuffer.byteLength / 1024).toFixed(2)} KB`);
+
+      // Calculate actual duration
+      const duration = totalLength / (sampleRate * 2); // 16-bit = 2 bytes per sample
+      console.log(`⏱️ Audio duration: ${duration.toFixed(2)} seconds`);
 
       // Create form data for upload
       const formData = new FormData();
@@ -177,9 +184,17 @@ export class LiveSessionService {
       formData.append("content", message.content);
       formData.append("role", message.role);
       formData.append("type", "audio");
+      formData.append("duration", duration.toString());
       if (message.metadata) {
-        formData.append("metadata", JSON.stringify(message.metadata));
+        formData.append("metadata", JSON.stringify({
+          ...message.metadata,
+          chunkCount: audioChunks.length,
+          totalBytes: totalLength,
+          wavBytes: wavBuffer.byteLength,
+        }));
       }
+
+      console.log("📤 Uploading audio to server...");
 
       // Upload via API
       const response = await fetch(
@@ -198,6 +213,7 @@ export class LiveSessionService {
         return this.addMessage(message);
       }
 
+      console.log("✅ Audio saved successfully:", data.message?.id);
       return data.message;
     } catch (error) {
       console.error("Failed to upload audio:", error);

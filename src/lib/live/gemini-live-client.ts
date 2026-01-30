@@ -18,6 +18,7 @@ export interface GeminiLiveCallbacks {
   onAudioLevel?: (level: number) => void;
   onReconnecting?: (attempt: number) => void;
   onReconnected?: () => void;
+  onContinuing?: (part: number) => void;
 }
 
 export interface SessionConfig {
@@ -61,8 +62,11 @@ export class GeminiLiveSession {
   private audioBufferQueue: { buffer: AudioBuffer; timestamp: number }[] = [];
   private nextPlayTime: number = 0;
   private isAudioScheduled: boolean = false;
-  private readonly BUFFER_AHEAD_TIME = 0.1; // 100ms buffer
+
+  // Increase buffer settings for longer audio:
+  private readonly BUFFER_AHEAD_TIME = 0.2; // 100ms buffer
   private readonly MIN_BUFFER_SIZE = 3; // Wait for 3 chunks before playing
+  private readonly MAX_QUEUE_SIZE = 500; // Maximum chunks in queue
 
   private onAudioLevel?: (level: number) => void;
 
@@ -75,6 +79,23 @@ export class GeminiLiveSession {
   private readonly KEEP_ALIVE_INTERVAL = 15000; // 15 seconds
   private readonly INACTIVITY_TIMEOUT = 300000; // 5 minutes
   private isManualDisconnect: boolean = false;
+
+  private audioChunksForPlayback: ArrayBuffer[] = [];
+  private totalAudioDuration: number = 0;
+  private isResponseComplete: boolean = false;
+  private audioSaveTimeout: NodeJS.Timeout | null = null;
+  private lastAudioChunkTime: number = 0;
+  private readonly AUDIO_CHUNK_TIMEOUT = 5000;
+  private isGenerationComplete: boolean = false;
+
+  private continuationCount: number = 0;
+  private maxContinuations: number = 10; // Allow up to 10 continuations (~3 min total)
+  private shouldRequestContinuation: boolean = false;
+  private originalQuery: string = "";
+
+  // Add chunked saving for very long responses:
+  private readonly MAX_AUDIO_DURATION_PER_MESSAGE = 60; // 60 seconds per message
+  private savedAudioDuration: number = 0;
 
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
@@ -135,6 +156,131 @@ export class GeminiLiveSession {
     this.dbService = new LiveSessionService();
     this.clientSessionId = `live_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.onAudioLevel = callbacks.onAudioLevel;
+  }
+
+  private resetAudioSaveTimeout(): void {
+    this.clearAudioSaveTimeout();
+
+    // If no new audio chunk for AUDIO_CHUNK_TIMEOUT, consider response complete
+    this.audioSaveTimeout = setTimeout(() => {
+      if (this.isCollectingAudio && !this.isResponseComplete) {
+        console.log("⏰ Audio chunk timeout - saving response");
+        this.finalizeAndSaveResponse();
+      }
+    }, this.AUDIO_CHUNK_TIMEOUT);
+  }
+
+  private clearAudioSaveTimeout(): void {
+    if (this.audioSaveTimeout) {
+      clearTimeout(this.audioSaveTimeout);
+      this.audioSaveTimeout = null;
+    }
+  }
+
+  private scheduleAudioSave(delay: number): void {
+    this.clearAudioSaveTimeout();
+
+    this.audioSaveTimeout = setTimeout(() => {
+      this.finalizeAndSaveResponse();
+    }, delay);
+  }
+
+  private async finalizeAndSaveResponse(): Promise<void> {
+    if (this.isResponseComplete) return;
+    this.isResponseComplete = true;
+
+    console.log("💾 Finalizing response...");
+    console.log(`📊 Final: ${this.audioChunksForStorage.length} chunks, ${this.totalAudioDuration.toFixed(2)}s audio`);
+
+    if (this.audioChunksForStorage.length > 0 || this.currentAssistantText) {
+      await this.saveAssistantMessageWithAudio();
+    }
+
+    // Check if we should request continuation
+    // If response was cut off (ended with incomplete sentence, or user asked for long content)
+    const shouldContinue = this.shouldRequestContinuation &&
+      this.continuationCount < this.maxContinuations;
+
+    this.resetResponseState();
+    this.callbacks.onTurnComplete();
+
+    if (shouldContinue) {
+      await this.requestContinuation();
+    }
+  }
+
+  // method to request continuation:
+  private async requestContinuation(): Promise<void> {
+    this.continuationCount++;
+    console.log(`🔄 Requesting continuation ${this.continuationCount}/${this.maxContinuations}`);
+
+    this.callbacks.onContinuing?.(this.continuationCount);
+
+    try {
+      const continuationPrompt = "Please continue from where you left off. Continue explaining.";
+
+      // Don't save this as a user message - it's automatic
+      this.callbacks.onThinkingStart?.();
+      await this.session.send(continuationPrompt);
+    } catch (error) {
+      console.error("Continuation request failed:", error);
+    }
+  }
+
+  // method to enable continuation mode:
+  enableContinuation(): void {
+    this.shouldRequestContinuation = true;
+    console.log("📝 Continuation mode enabled");
+  }
+
+  disableContinuation(): void {
+    this.shouldRequestContinuation = false;
+    console.log("📝 Continuation mode disabled");
+  }
+
+  // intermediate save method:
+  private async saveIntermediateAudio(): Promise<void> {
+    if (this.audioChunksForStorage.length === 0) return;
+
+    const chunksToSave = [...this.audioChunksForStorage];
+    const textToSave = this.currentAssistantText;
+
+    // Reset for next chunk
+    this.audioChunksForStorage = [];
+    this.savedAudioDuration = this.totalAudioDuration;
+
+    // Save in background
+    this.messageCount++;
+    const savedMessage = await this.dbService.addMessageWithAudio(
+      {
+        role: "assistant",
+        type: "audio",
+        content: textToSave || "[Audio response - continued]",
+        metadata: {
+          isPartial: true,
+          partDuration: this.totalAudioDuration,
+          processingTime: Date.now() - this.responseStartTime,
+        },
+      },
+      chunksToSave,
+      24000
+    );
+
+    if (savedMessage) {
+      this.callbacks.onMessageSaved(savedMessage);
+    }
+
+    // Clear text after saving
+    this.currentAssistantText = "";
+  }
+
+  private resetResponseState(): void {
+    this.isCollectingAudio = false;
+    this.audioChunksForStorage = [];
+    this.currentAssistantText = "";
+    this.totalAudioDuration = 0;
+    this.lastAudioChunkTime = 0;
+    this.lastUserTranscript = "";
   }
 
   private calculateAudioLevel(audioData: ArrayBuffer): number {
@@ -291,14 +437,16 @@ export class GeminiLiveSession {
           const silentAudio = new ArrayBuffer(320); // Small silent audio chunk
           const base64 = this.arrayBufferToBase64(silentAudio);
 
-          this.session.sendRealtimeInput({
-            audio: {
-              data: base64,
-              mimeType: "audio/pcm;rate=16000",
-            },
-          }).catch((err: Error) => {
-            console.warn("Keep-alive failed:", err);
-          });
+          if (typeof this.session.sendRealtimeInput === 'function') {
+            this.session.sendRealtimeInput({
+              audio: {
+                data: base64,
+                mimeType: "audio/pcm;rate=16000",
+              },
+            }).catch((err: Error) => {
+              console.warn("Keep-alive failed:", err);
+            });
+          }
 
           console.log("Keep-alive sent");
         } catch (err) {
@@ -334,12 +482,13 @@ export class GeminiLiveSession {
   }
 
   private async handleMessage(message: any): Promise<void> {
+    this.lastActivityTime = Date.now(); // Track activity
+    this.resetInactivityTimer();
+
     try {
       // DEBUG: Log full message structure to find transcript location
-      console.log("=== GEMINI MESSAGE ===", JSON.stringify(message, null, 2));
+      console.log("=== GEMINI MESSAGE ===", JSON.stringify(message, null, 2).substring(0, 500));
 
-      this.lastActivityTime = Date.now(); // Track activity
-      this.resetInactivityTimer();
 
       // Check for user speech transcription in ALL possible locations
       const possibleTranscripts = [
@@ -376,31 +525,54 @@ export class GeminiLiveSession {
           // Start collecting audio if not already
           if (!this.isCollectingAudio) {
             this.isCollectingAudio = true;
+            this.isResponseComplete = false;
+            this.isGenerationComplete = false;
             this.audioChunksForStorage = [];
-            this.responseStartTime = Date.now(); // Track when response started
+            this.audioChunksForPlayback = [];
+            this.currentAssistantText = "";
+            this.totalAudioDuration = 0;
+            this.responseStartTime = Date.now();
             this.callbacks.onThinkingEnd?.();
+            console.log("🎙️ Started collecting audio response");
+          }
+
+          this.lastAudioChunkTime = Date.now();
+          // Only reset timeout if generation not complete
+          if (!this.isGenerationComplete) {
+            this.resetAudioSaveTimeout();
           }
 
           for (const part of content.modelTurn.parts) {
-            // Handle audio
+            // Handle audio chunks
             if (part.inlineData?.mimeType?.includes("audio")) {
               const audioData = this.base64ToArrayBuffer(part.inlineData.data || "");
 
+              // Calculate chunk duration (24kHz, 16-bit mono)
+              const chunkDuration = audioData.byteLength / (24000 * 2);
+              this.totalAudioDuration += chunkDuration;
+
+              console.log(`🔊 Audio chunk: ${audioData.byteLength} bytes, ~${chunkDuration.toFixed(2)}s, total: ${this.totalAudioDuration.toFixed(2)}s`);
+
+              // Store for later saving
+              this.audioChunksForStorage.push(audioData);
+
+              // Check if we should save intermediate chunk (for very long responses)
+              // const unsavedDuration = this.totalAudioDuration - this.savedAudioDuration;
+              // if (unsavedDuration >= this.MAX_AUDIO_DURATION_PER_MESSAGE) {
+              //   console.log(`💾 Saving intermediate chunk at ${this.totalAudioDuration.toFixed(2)}s`);
+              //   await this.saveIntermediateAudio();
+              // }
+
               // Calculate and emit audio level
-              const samples = new Int16Array(audioData);
-              let sum = 0;
-              for (let i = 0; i < samples.length; i++) {
-                sum += Math.abs(samples[i]);
-              }
-              const level = Math.min(1, (sum / samples.length) / 8000);
+              const level = this.calculateAudioLevel(audioData);
               this.callbacks.onAudioLevel?.(level);
 
-              this.audioChunksForStorage.push(audioData);
+              // Queue for playback
               this.callbacks.onAudioResponse(audioData);
               this.queueAudio(audioData);
             }
 
-            // Handle text
+            // Handle text chunks
             if (part.text) {
               this.currentAssistantText += part.text;
               this.callbacks.onTextResponse(part.text, true);
@@ -409,22 +581,37 @@ export class GeminiLiveSession {
           }
         }
 
-        // Handle turn complete - save the full message with audio
+        // Handle generation complete - this comes before turnComplete
+        if (content.generationComplete) {
+          console.log("✅ Generation complete signal received");
+          this.isGenerationComplete = true;
+          // Wait a bit for any final chunks, then save
+          this.scheduleAudioSave(1000);
+        }
+
+        // Handle turn complete
         if (content.turnComplete) {
-          if (this.currentAssistantText || this.audioChunksForStorage.length > 0) {
-            await this.saveAssistantMessageWithAudio();
+          console.log("🏁 Turn complete signal received");
+          console.log(`📊 Audio: ${this.audioChunksForStorage.length} chunks, ~${this.totalAudioDuration.toFixed(2)}s`);
+
+          // If we haven't saved yet (no generationComplete), save now
+          if (!this.isResponseComplete && this.audioChunksForStorage.length > 0) {
+            this.clearAudioSaveTimeout();
+            await this.finalizeAndSaveResponse();
           }
-          this.callbacks.onTurnComplete();
-          // Reset for next turn
-          this.lastUserTranscript = "";
         }
 
         // Handle interruption
         if (content.interrupted) {
+          console.log("⚠️ Response interrupted");
+          this.clearAudioSaveTimeout();
           this.clearAudioQueue();
-          this.currentAssistantText = "";
-          this.audioChunksForStorage = [];
-          this.isCollectingAudio = false;
+
+          if (this.audioChunksForStorage.length > 0 || this.currentAssistantText) {
+            await this.saveAssistantMessageWithAudio();
+          }
+
+          this.resetResponseState();
           this.callbacks.onInterrupted();
         }
       }
@@ -516,8 +703,18 @@ export class GeminiLiveSession {
     }
 
     if (this.config.educationLevel) {
-      prompt += `\n\nSTUDENT EDUCATION LEVEL: ${this.config.educationLevel}. Adjust your explanations accordingly.`;
+      prompt += `\n\nSTUDENT EDUCATION LEVEL: ${this.config.educationLevel}`;
     }
+
+    // Add instruction for comprehensive responses
+    prompt += `
+
+      RESPONSE LENGTH GUIDELINES:
+      - For simple questions: Give concise 15-30 second responses
+      - For complex topics: Provide detailed explanations up to 2-3 minutes
+      - For "explain in detail" or "comprehensive" requests: Give thorough coverage
+      - If you need more time to fully explain, say "Let me continue..." at the end
+      - Break complex topics into clear sections`;
 
     return prompt;
   }
@@ -568,6 +765,12 @@ export class GeminiLiveSession {
     }
 
     this.resetInactivityTimer();
+    this.lastActivityTime = Date.now();
+
+    // Track original query for continuations
+    this.originalQuery = text;
+    this.continuationCount = 0;
+    this.shouldRequestContinuation = false;
 
     try {
       // Save user message first
@@ -691,6 +894,11 @@ export class GeminiLiveSession {
 
       const audioBuffer = this.audioContext.createBuffer(1, floatSamples.length, 24000);
       audioBuffer.getChannelData(0).set(floatSamples);
+
+      // Limit queue size to prevent memory issues
+      if (this.audioBufferQueue.length >= this.MAX_QUEUE_SIZE) {
+        console.warn(`Audio queue large: ${this.audioBufferQueue.length} chunks`);
+      }
 
       this.audioBufferQueue.push({
         buffer: audioBuffer,
