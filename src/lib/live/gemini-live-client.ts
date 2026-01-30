@@ -429,7 +429,7 @@ export class GeminiLiveSession {
   private startKeepAlive(): void {
     this.stopKeepAlive();
 
-    this.keepAliveInterval = setInterval(() => {
+    this.keepAliveInterval = setInterval(async () => {
       if (this.session && this.isConnected) {
         try {
           // Send empty audio to keep connection alive
@@ -438,7 +438,7 @@ export class GeminiLiveSession {
           const base64 = this.arrayBufferToBase64(silentAudio);
 
           if (typeof this.session.sendRealtimeInput === 'function') {
-            this.session.sendRealtimeInput({
+            await this.session.sendRealtimeInput({
               audio: {
                 data: base64,
                 mimeType: "audio/pcm;rate=16000",
