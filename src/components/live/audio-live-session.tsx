@@ -29,6 +29,12 @@ import { LiveMessage } from '@/lib/live/live-session-service';
 import { AudioVisualizer } from './audio-visualizer';
 import { Header } from '../layout/header';
 import { useLiveSessions } from '@/hooks/use-live-sessions';
+import {
+  AudioWaveform,
+  formatDuration,
+  FormattedMessageContent,
+  formatTime,
+} from './helper';
 
 interface AudioLiveSessionProps {
   apiKey: string;
@@ -67,6 +73,7 @@ export function AudioLiveSession({
   const [textInput, setTextInput] = useState('');
   const [showTranscript, setShowTranscript] = useState(true);
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Refs
   const sessionRef = useRef<GeminiLiveSession | null>(null);
@@ -93,6 +100,9 @@ export function AudioLiveSession({
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
+  const [continuationEnabled, setContinuationEnabled] = useState(false);
+  const [continuationPart, setContinuationPart] = useState(0);
+
   const {
     sessions: previousSessions,
     isLoading: isLoadingSessions,
@@ -101,6 +111,11 @@ export function AudioLiveSession({
     loadSessionMessages,
     clearSelection: clearViewingSession,
   } = useLiveSessions({ userId, guestSessionId });
+
+  const [responseProgress, setResponseProgress] = useState<{
+    duration: number;
+    chunks: number;
+  } | null>(null);
 
   const toggleMessageExpand = useCallback((messageId: string) => {
     setExpandedMessages((prev) => {
@@ -112,6 +127,31 @@ export function AudioLiveSession({
       }
       return next;
     });
+  }, []);
+
+  const resizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Reset height → measure scrollHeight
+    textarea.style.height = 'auto';
+    const scrollHeight = textarea.scrollHeight;
+
+    // Apply max height constraint
+    textarea.style.height = `${Math.min(scrollHeight, 120)}px`;
+  }, []);
+
+  // Auto-resize on content change
+  useEffect(() => {
+    resizeTextarea();
+  }, [textInput, resizeTextarea]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      const textarea = textareaRef.current;
+      if (textarea) textarea.style.height = 'auto';
+    };
   }, []);
 
   // Auto-scroll messages
@@ -330,9 +370,15 @@ export function AudioLiveSession({
             setIsThinking(false);
             setIsAiSpeaking(false);
           },
-          onAudioResponse: () => {
+          onAudioResponse: (audioData) => {
             setIsAiSpeaking(true);
             setIsThinking(false);
+            // Track progress
+            setResponseProgress((prev) => ({
+              duration:
+                (prev?.duration || 0) + audioData.byteLength / (24000 * 2),
+              chunks: (prev?.chunks || 0) + 1,
+            }));
           },
           onTextResponse: () => {
             // Text is handled via onMessageSaved
@@ -346,6 +392,7 @@ export function AudioLiveSession({
           },
           onTurnComplete: () => {
             setIsAiSpeaking(false);
+            setResponseProgress(null);
           },
           onMessageSaved: (message: LiveMessage) => {
             addMessage(message);
@@ -370,6 +417,10 @@ export function AudioLiveSession({
             setReconnectAttempt(0);
             setConnectionState('connected');
             setError(null);
+          },
+          onContinuing: (part) => {
+            setContinuationPart(part);
+            setIsThinking(true);
           },
         },
       );
@@ -459,18 +510,12 @@ export function AudioLiveSession({
 
     const text = textInput.trim();
     setTextInput('');
-    await sessionRef.current.sendText(text);
+    try {
+      await sessionRef.current.sendText(text);
+    } catch (err) {
+      console.error('Failed to send text:', err);
+    }
   }, [textInput]);
-
-  const handleKeyPress = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSendText();
-      }
-    },
-    [handleSendText],
-  );
 
   // Audio playback for stored audio
   const playStoredAudio = useCallback((messageId: string, audioUrl: string) => {
@@ -539,6 +584,22 @@ export function AudioLiveSession({
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => {
+                startNewSession();
+                setShowHistory(false);
+              }}
+              className="w-full p-2 rounded-lg text-left transition-colors
+             bg-[hsl(var(--primary)/0.1)] border border-[hsl(var(--primary)/0.3)]
+             hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.15)]"
+            >
+              <div className="flex items-center gap-2">
+                <Plus className="w-4 h-4 text-[hsl(var(--primary))]" />
+                <span className="text-sm font-medium text-[hsl(var(--primary))]">
+                  New Session
+                </span>
+              </div>
+            </button>
+            <button
               onClick={() => setShowTranscript(!showTranscript)}
               className={cn(
                 'p-2 rounded-lg transition-colors',
@@ -548,22 +609,6 @@ export function AudioLiveSession({
               )}
             >
               <MessageSquare className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => {
-                startNewSession();
-                setShowHistory(false);
-              }}
-              className="w-full p-3 rounded-lg text-left transition-colors mb-2
-             bg-[hsl(var(--primary)/0.1)] border border-[hsl(var(--primary)/0.3)]
-             hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.15)]"
-            >
-              <div className="flex items-center gap-2">
-                <Plus className="w-4 h-4 text-[hsl(var(--primary))]" />
-                <span className="text-sm font-medium text-[hsl(var(--primary))]">
-                  Start New Session
-                </span>
-              </div>
             </button>
             <button
               onClick={() => setShowHistory(!showHistory)}
@@ -591,6 +636,12 @@ export function AudioLiveSession({
             )}
           </div>
         </div>
+        {/* Add progress display in UI: */}
+        {isAiSpeaking && responseProgress && responseProgress.duration > 5 && (
+          <div className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+            Recording: {responseProgress.duration.toFixed(1)}s
+          </div>
+        )}
         {/* Main Content - Stacked on Mobile, Side by Side on Desktop */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Audio Section */}
@@ -622,13 +673,11 @@ export function AudioLiveSession({
                     ? 'Speaking...'
                     : 'Listening...')}
             </p>
-
             {error && (
               <p className="text-[hsl(var(--destructive))] text-xs mb-4">
                 {error}
               </p>
             )}
-
             {/* Visualizer Circle */}
             <div className="relative w-32 h-32 mb-6">
               {/* Background Ring with Pulse */}
@@ -700,7 +749,6 @@ export function AudioLiveSession({
                 )}
               </div>
             </div>
-
             {/* Controls */}
             <div className="flex items-center gap-3">
               <button
@@ -764,6 +812,53 @@ export function AudioLiveSession({
                 )}
               </button>
             </div>
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                onClick={() => {
+                  const newValue = !continuationEnabled;
+                  setContinuationEnabled(newValue);
+                  if (sessionRef.current) {
+                    if (newValue) {
+                      sessionRef.current.enableContinuation();
+                    } else {
+                      sessionRef.current.disableContinuation();
+                    }
+                  }
+                }}
+                disabled={connectionState !== 'connected'}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs transition-all',
+                  connectionState !== 'connected'
+                    ? 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed'
+                    : continuationEnabled
+                      ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                      : 'bg-[hsl(var(--muted))] hover:bg-[hsl(var(--accent))]',
+                )}
+                title="Enable for longer responses"
+              >
+                {continuationEnabled ? '📖 Long Response' : '📄 Normal'}
+              </button>
+            </div>
+            {!isAiSpeaking && !isThinking && messages.length > 0 && (
+              <button
+                onClick={() => {
+                  if (sessionRef.current?.connected) {
+                    sessionRef.current.sendText('Please continue explaining');
+                  }
+                }}
+                className="mt-2 px-3 py-1.5 rounded-lg text-xs
+               bg-[hsl(var(--muted))] hover:bg-[hsl(var(--accent))]
+               text-[hsl(var(--foreground))] pb-2"
+              >
+                Continue →
+              </button>
+            )}
+            {/* Show continuation progress: */}
+            {continuationPart > 0 && isThinking && (
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Continuing... (Part {continuationPart + 1})
+              </p>
+            )}
           </div>
 
           {showHistory && (
@@ -924,21 +1019,58 @@ export function AudioLiveSession({
 
               {/* Text Input */}
               <div className="p-3 border-t border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
+                <div className="flex gap-2 items-end">
+                  {/* <textarea
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
-                    onKeyPress={handleKeyPress}
+                    onKeyDown={(e) => {
+                      // Send on Enter, new line on Shift+Enter
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendText();
+                      }
+                    }}
                     placeholder={
                       connectionState === 'connected'
-                        ? 'Type a message...'
+                        ? 'Type a message... (Enter to send, Shift+Enter for new line)'
                         : 'Connect first'
                     }
                     disabled={connectionState !== 'connected'}
+                    rows={1}
                     className="flex-1 bg-[hsl(var(--background))] rounded-lg px-3 py-2 text-sm
-                           border border-[hsl(var(--input))] focus:outline-none focus:ring-2
-                           focus:ring-[hsl(var(--ring))] disabled:opacity-50"
+                 border border-[hsl(var(--input))] disabled:opacity-50
+                 resize-none min-h-[40px] max-h-[120px] overflow-y-auto"
+                    style={{
+                      height: 'auto',
+                    }}
+                    onInput={(e) => {
+                      // Auto-resize textarea
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = 'auto';
+                      target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+                    }}
+                  /> */}
+                  <textarea
+                    value={textInput}
+                    onChange={(e) => setTextInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendText();
+                        return;
+                      }
+                      // Shift+Enter → new line (allow growth)
+                    }}
+                    placeholder={
+                      connectionState === 'connected'
+                        ? 'Type a message... (Enter → send, Shift+Enter → new line)'
+                        : 'Connect first'
+                    }
+                    disabled={connectionState !== 'connected'}
+                    className="flex-1 min-h-[40px] max-h-[120px] bg-[hsl(var(--background))] rounded-lg px-4 py-3 text-sm border border-[hsl(var(--input))] disabled:opacity-50 resize-none transition-all"
+                    rows={1} // ✅ Start as single line input
+                    style={{ height: 'auto' }}
+                    ref={textareaRef} // Add ref
                   />
                   <button
                     onClick={handleSendText}
@@ -946,16 +1078,19 @@ export function AudioLiveSession({
                       connectionState !== 'connected' || !textInput.trim()
                     }
                     className="p-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                           rounded-lg disabled:opacity-50 transition-colors"
+                 rounded-lg disabled:opacity-50 transition-colors shrink-0 h-10 w-10
+                 flex items-center justify-center hover:bg-[hsl(var(--primary)/0.9)]"
                   >
                     <Send className="w-4 h-4" />
                   </button>
                 </div>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1 text-right">
+                  Enter to send • Shift+Enter for new line
+                </p>
               </div>
             </div>
           )}
         </div>
-
         {connectionState === 'connected' && (
           <div className="flex items-center gap-1.5 text-xs">
             <div
@@ -1074,8 +1209,11 @@ function MessageBubble({
           )}
         >
           {isExpanded ? (
-            <p className="whitespace-pre-wrap leading-relaxed">
-              {message.content}
+            <p className="text-sm whitespace-pre-wrap leading-relaxed">
+              <FormattedMessageContent
+                content={message.content}
+                isUser={isUser}
+              />
             </p>
           ) : (
             <div className="flex items-center gap-2">
@@ -1168,36 +1306,4 @@ function MessageBubble({
       </div>
     </div>
   );
-}
-
-// Audio Waveform Animation
-function AudioWaveform() {
-  return (
-    <div className="flex items-center gap-0.5 ml-1">
-      {[1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          className="w-0.5 bg-[hsl(var(--primary))] rounded-full animate-pulse"
-          style={{
-            height: `${6 + Math.random() * 6}px`,
-            animationDelay: `${i * 0.1}s`,
-            animationDuration: '0.5s',
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-// Utility Functions
-function formatTime(date?: Date | string): string {
-  if (!date) return '';
-  const d = new Date(date);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
