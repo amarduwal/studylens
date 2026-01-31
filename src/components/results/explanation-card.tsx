@@ -1,16 +1,26 @@
 'use client';
 
-import { Lightbulb, BookOpen, Target, HelpCircle } from 'lucide-react';
+import {
+  Lightbulb,
+  BookOpen,
+  Target,
+  HelpCircle,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScanResult } from '@/types';
 import { cn } from '@/lib/utils';
 import { renderMarkdown } from '../common/markdown-parser';
+import { useState } from 'react';
 
 interface ExplanationCardProps {
   result: ScanResult;
 }
 
 export function ExplanationCard({ result }: ExplanationCardProps) {
+  const [showExtractedText, setShowExtractedText] = useState(false);
+  const [showAnswer, setShowAnswer] = useState(true);
   const { explanation, subject, topic, difficulty, extractedText } = result;
 
   return (
@@ -31,7 +41,7 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
             difficulty === 'medium' &&
               'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
             difficulty === 'hard' &&
-              'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+              'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
           )}
         >
           {difficulty
@@ -42,30 +52,54 @@ export function ExplanationCard({ result }: ExplanationCardProps) {
 
       {/* Extracted Text */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <BookOpen className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
-            What I see
+        <CardHeader
+          className="pt-3 pb-3 cursor-pointer"
+          onClick={() => setShowExtractedText(!showExtractedText)}
+        >
+          <CardTitle className="flex items-center justify-between text-base">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+              What I see
+            </div>
+            {showExtractedText ? (
+              <ChevronUp className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+            ) : (
+              <ChevronDown className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+            )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="text-[hsl(var(--muted-foreground))] whitespace-pre-wrap">
-            {renderMarkdown(extractedText)}
-          </div>
-        </CardContent>
+        {showExtractedText && (
+          <CardContent>
+            <div className="text-[hsl(var(--muted-foreground))] whitespace-pre-wrap">
+              {renderMarkdown(extractedText)}
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       {/* Simple Answer */}
       <Card className="border-[hsl(var(--primary))]/20 bg-[hsl(var(--primary))]/5">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Target className="h-5 w-5 text-[hsl(var(--primary))]" />
-            Answer
+        <CardHeader
+          className="pb-3 pt-3 cursor-pointer"
+          onClick={() => setShowAnswer(!showAnswer)}
+        >
+          <CardTitle className="flex items-center justify-between text-base">
+            <div className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-[hsl(var(--primary))]" />
+              Answer
+            </div>
+            {showAnswer ? (
+              <ChevronUp className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+            ) : (
+              <ChevronDown className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
+            )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <p className="text-lg font-semibold">{explanation.simpleAnswer}</p>
-        </CardContent>
+        {showAnswer && (
+          <CardContent>
+            <p className="text-lg font-semibold">{explanation.simpleAnswer}</p>
+          </CardContent>
+        )}
       </Card>
 
       {/* Concept Explanation */}

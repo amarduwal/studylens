@@ -262,7 +262,7 @@ export default function RootLayout({
         />
         <link
           rel="apple-touch-startup-image"
-          href="/splash.jpg"
+          href="/splash.png"
           media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)"
         />
         {/* Preconnect for performance */}

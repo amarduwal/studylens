@@ -240,27 +240,27 @@ export function FollowUpChat({
                 ) : (
                   <div className="mx-auto max-w-4xl space-y-6">
                     {messages.map((message) => (
-                      <div key={message.id} className="group">
+                      <div key={message.id} className="flex flex-col gap-1">
                         <div
                           className={cn(
-                            'flex gap-4',
-                            message.role === 'user' && 'flex-row-reverse'
+                            'flex gap-1',
+                            message.role === 'user' && 'flex-row-reverse',
                           )}
                         >
                           {/* Avatar */}
                           <div
                             className={cn(
-                              'flex h-10 w-10 shrink-0 items-center justify-center rounded-full',
+                              'flex h-5 w-5 shrink-0 items-center justify-center rounded-full',
                               message.role === 'user' &&
                                 !session?.user?.avatarUrl
                                 ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                                : ''
+                                : '',
                             )}
                           >
                             {message.role === 'user' ? (
                               <>
                                 {session?.user && session.user.avatarUrl ? (
-                                  <div className="relative w-10 h-10">
+                                  <div className="relative w-5 h-5">
                                     <Image
                                       src={session.user.avatarUrl}
                                       alt={session.user.name || 'User'}
@@ -273,7 +273,7 @@ export function FollowUpChat({
                                 )}
                               </>
                             ) : (
-                              <div className="relative h-10 w-10">
+                              <div className="relative h-5 w-5">
                                 <Image
                                   src="/icon-192.png"
                                   alt="StudyLens"
@@ -286,20 +286,20 @@ export function FollowUpChat({
                           </div>
 
                           {/* Message Content */}
-                          <div className="flex-1">
+                          <div>
                             <div
                               className={cn(
                                 'relative rounded-2xl px-5 py-3',
                                 message.role === 'user'
                                   ? 'bg-[hsl(var(--primary))]/5'
-                                  : 'bg-[hsl(var(--muted))]/30'
+                                  : 'bg-[hsl(var(--muted))]/30',
                               )}
                             >
                               {/* Message Text */}
                               <div
                                 className={cn(
                                   'prose prose-sm max-w-none dark:prose-invert',
-                                  message.role === 'user' ? 'ml-7' : 'mr-7'
+                                  message.role === 'user' ? 'ml-7' : 'mr-7',
                                 )}
                               >
                                 {renderMarkdown(message.content)}
@@ -312,7 +312,7 @@ export function FollowUpChat({
                                 'mt-2 flex items-center gap-2 text-xs',
                                 message.role === 'user'
                                   ? 'justify-end'
-                                  : 'justify-start'
+                                  : 'justify-start',
                               )}
                             >
                               {/* For user: Copy button comes first */}
@@ -330,7 +330,7 @@ export function FollowUpChat({
                                   </Button>
                                   <span className="text-[hsl(var(--muted-foreground))]">
                                     {new Date(
-                                      message.timestamp
+                                      message.timestamp,
                                     ).toLocaleTimeString([], {
                                       hour: '2-digit',
                                       minute: '2-digit',
@@ -344,7 +344,7 @@ export function FollowUpChat({
                                 <>
                                   <span className="text-[hsl(var(--muted-foreground))]">
                                     {new Date(
-                                      message.timestamp
+                                      message.timestamp,
                                     ).toLocaleTimeString([], {
                                       hour: '2-digit',
                                       minute: '2-digit',
@@ -466,23 +466,23 @@ export function FollowUpChat({
               <div key={message.id} className="flex flex-col gap-1">
                 <div
                   className={cn(
-                    'flex gap-3',
-                    message.role === 'user' && 'flex-row-reverse'
+                    'flex gap-1',
+                    message.role === 'user' && 'flex-row-reverse',
                   )}
                 >
                   {/* Avatar */}
                   <div
                     className={cn(
-                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
                       message.role === 'user' && !session?.user?.avatarUrl
                         ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                        : ''
+                        : '',
                     )}
                   >
                     {message.role === 'user' ? (
                       <>
                         {session?.user && session.user.avatarUrl ? (
-                          <div className="relative w-8 h-8">
+                          <div className="relative w-6 h-6">
                             <Image
                               src={session.user.avatarUrl}
                               alt={session.user.name || 'User'}
@@ -495,7 +495,7 @@ export function FollowUpChat({
                         )}
                       </>
                     ) : (
-                      <div className="relative h-8 w-8">
+                      <div className="relative h-6 w-6">
                         <Image
                           src="/icon-192.png"
                           alt="StudyLens"
@@ -511,7 +511,7 @@ export function FollowUpChat({
                       'rounded-2xl px-4 py-2 max-w-[80%]',
                       message.role === 'user'
                         ? 'bg-[hsl(var(--primary))]/5 text-[hsl(var(--primary-foreground))]'
-                        : 'bg-[hsl(var(--background))] border border-[hsl(var(--border))]'
+                        : 'bg-[hsl(var(--background))] border border-[hsl(var(--border))]',
                     )}
                   >
                     <span className="text-sm whitespace-pre-wrap">
@@ -526,7 +526,7 @@ export function FollowUpChat({
                     'mt-1 flex items-center gap-2 text-[10px]',
                     message.role === 'user'
                       ? 'justify-end mr-11'
-                      : 'justify-start ml-11'
+                      : 'justify-start ml-11',
                   )}
                 >
                   {/* For user: Copy button comes first */}

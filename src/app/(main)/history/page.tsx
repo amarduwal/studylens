@@ -45,7 +45,7 @@ export default function HistoryPage() {
         setIsSearching(true);
         setFilter('search');
         searchScans(localSearchQuery, sessionId).finally(() =>
-          setIsSearching(false)
+          setIsSearching(false),
         );
       } else {
         clearSearch();
@@ -66,8 +66,8 @@ export default function HistoryPage() {
     filter === 'search'
       ? searchResults
       : filter === 'recent'
-      ? recentScans
-      : scanHistory;
+        ? recentScans
+        : scanHistory;
 
   const handleBookmark = async (scanId: string) => {
     if (!scanId) return;
@@ -81,7 +81,7 @@ export default function HistoryPage() {
     const result = await toggleBookmarkDB(scanId); // Changed
     showToast(
       result.isBookmarked ? 'Added to bookmarks' : 'Removed from bookmarks',
-      'success'
+      'success',
     );
   };
 
@@ -142,7 +142,7 @@ export default function HistoryPage() {
                     'px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
                     filter === 'search'
                       ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
-                      : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+                      : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]',
                   )}
                 >
                   Search Results
@@ -157,7 +157,7 @@ export default function HistoryPage() {
                   'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
                   filter === 'recent'
                     ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
-                    : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+                    : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]',
                 )}
               >
                 Recent Scans
@@ -168,7 +168,7 @@ export default function HistoryPage() {
                   'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
                   filter === 'all'
                     ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
-                    : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+                    : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]',
                 )}
               >
                 All
@@ -247,7 +247,7 @@ export default function HistoryPage() {
                               <Image
                                 src={
                                   getImageUrl(scan.imageUrls[0]) ||
-                                  '/Screenshot-1.png'
+                                  '/screenshots/Screenshot-1.jpeg'
                                 }
                                 alt="Scan thumbnail"
                                 fill
@@ -282,7 +282,7 @@ export default function HistoryPage() {
                                   className={cn(
                                     'h-4 w-4',
                                     isBookmarked(scan.id) &&
-                                      'fill-[hsl(var(--primary))] text-[hsl(var(--primary))]'
+                                      'fill-[hsl(var(--primary))] text-[hsl(var(--primary))]',
                                   )}
                                 />
                               </Button>
@@ -305,7 +305,7 @@ export default function HistoryPage() {
                                   scan.difficulty === 'medium' &&
                                     'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
                                   scan.difficulty === 'hard' &&
-                                    'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                                    'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
                                 )}
                               >
                                 {scan.difficulty}

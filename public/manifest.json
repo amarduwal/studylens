@@ -9,25 +9,128 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "/icons/logo-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/icons/logo-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/logo-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/logo-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/logo-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/logo-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/logo-256x256.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/logo-512x512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/png"
     }
   ],
-  "categories": ["education", "productivity"],
+  "categories": [
+    "education",
+    "productivity",
+    "tools",
+    "learning",
+    "ai",
+    "camera"
+  ],
   "screenshots": [
     {
-      "src": "/screenshot-1.png",
+      "src": "/screenshots/Screenshot-1.jpeg",
       "sizes": "540x720",
       "type": "image/png",
       "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshots/Screenshot-2.jpeg",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshots/Screenshot-3.jpeg",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshots/Screenshot-4.jpeg",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshots/Screenshot-5.jpeg",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshots/Screenshot-6.jpeg",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Capture Content",
+      "short_name": "Scan",
+      "description": "Take a photo of educational content",
+      "url": "/"
+    },
+    {
+      "name": "Live Audio",
+      "short_name": "Live",
+      "description": "Ask by voice of educational content",
+      "url": "/live"
+    },
+    {
+      "name": "View History",
+      "short_name": "History",
+      "description": "Review past explanations",
+      "url": "/history"
+    },
+    {
+      "name": "View Bookmark",
+      "short_name": "Saved",
+      "description": "Review favorite scans",
+      "url": "/saved"
+    },
+    {
+      "name": "View Profile",
+      "short_name": "Profile",
+      "description": "View profile overview",
+      "url": "/profile"
+    },
+    {
+      "name": "Manage Settings",
+      "short_name": "Settings",
+      "description": "Manage account preferences",
+      "url": "/settings"
     }
   ]
 }

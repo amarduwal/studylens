@@ -36,7 +36,7 @@ export default function SavedPage() {
     sessionId,
   } = useScanStore();
   const [bookmarkedScans, setBookmarkedScans] = useState<ScanBookmarkResult[]>(
-    []
+    [],
   );
   const [isLoading, setIsLoading] = useState(true);
   const { showToast, ToastComponent } = useToast();
@@ -61,7 +61,7 @@ export default function SavedPage() {
     const result = await toggleBookmarkDB(scanId, sessionId);
     showToast(
       result.isBookmarked ? 'Added to bookmarks' : 'Removed from bookmarks',
-      'success'
+      'success',
     );
   };
 
@@ -207,7 +207,7 @@ export default function SavedPage() {
                               <Image
                                 src={
                                   getImageUrl(scan.storageKey) ||
-                                  '/Screenshot-1.png'
+                                  '/screenshots/Screenshot-1.jpeg'
                                 }
                                 alt="Scan thumbnail"
                                 fill
@@ -235,7 +235,7 @@ export default function SavedPage() {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 setOpenDropdownId(
-                                  openDropdownId === scan.id ? null : scan.id
+                                  openDropdownId === scan.id ? null : scan.id,
                                 );
                               }}
                             >
@@ -309,7 +309,7 @@ export default function SavedPage() {
                                   scan.difficulty === 'medium' &&
                                     'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
                                   scan.difficulty === 'hard' &&
-                                    'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                                    'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
                                 )}
                               >
                                 {scan.difficulty}

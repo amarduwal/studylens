@@ -77,7 +77,7 @@ export default function ResultsPage() {
 
         // Load messages
         const msgRes = await fetch(
-          `/api/conversations/${conversationId}/messages`
+          `/api/conversations/${conversationId}/messages`,
         );
         const msgData = await msgRes.json();
 
@@ -119,7 +119,7 @@ export default function ResultsPage() {
     const response = await toggleBookmarkDB(result.id); // Changed
     showToast(
       response.isBookmarked ? 'Added to bookmarks' : 'Removed from bookmarks',
-      'success'
+      'success',
     );
   };
 
@@ -192,7 +192,7 @@ export default function ResultsPage() {
                   className={cn(
                     'h-5 w-5 transition-colors',
                     bookmarked &&
-                      'fill-[hsl(var(--primary))] text-[hsl(var(--primary))]'
+                      'fill-[hsl(var(--primary))] text-[hsl(var(--primary))]',
                   )}
                 />
               </Button>
@@ -224,7 +224,7 @@ export default function ResultsPage() {
                           src={
                             url ||
                             getImageUrl(result.storageKey?.[index]) ||
-                            '/Screenshot-1.png'
+                            '/screenshots/Screenshot-1.jpeg'
                           }
                           onClear={() => router.push('/')}
                           viewOnly={true}
@@ -253,7 +253,7 @@ export default function ResultsPage() {
                       src={
                         getImageUrl(result.storageKey?.[0]) ||
                         result.imageUrls[0] ||
-                        '/Screenshot-1.png'
+                        '/screenshots/Screenshot-1.jpeg'
                       }
                       onClear={() => router.push('/')}
                       viewOnly={true}
@@ -268,7 +268,7 @@ export default function ResultsPage() {
 
                 <ImageModal
                   images={result.imageUrls.map(
-                    (url, i) => getImageUrl(result.storageKey?.[i]) || url
+                    (url, i) => getImageUrl(result.storageKey?.[i]) || url,
                   )}
                   initialIndex={selectedImageIndex}
                   isOpen={isImageModalOpen}
