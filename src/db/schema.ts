@@ -344,6 +344,11 @@ export const pricingPlans = pgTable("pricing_plans", {
   maxHistoryDays: integer("max_history_days"),
   dailyFollowupLimit: integer("daily_followup_limit").default(5),
   dailyPracticeLimit: integer("daily_practice_limit").default(5),
+  // Audio/Live Session Limits
+  liveSessionsEnabled: boolean("live_sessions_enabled").default(false),
+  dailyLiveSessionLimit: integer("daily_live_session_limit"), // null = unlimited
+  dailyLiveMinutesLimit: integer("daily_live_minutes_limit"), // null = unlimited
+  maxSessionDurationMinutes: integer("max_session_duration_minutes").default(10),
 
   // Features
   features: jsonb("features").default([]),
@@ -410,6 +415,9 @@ export const dailyUsage = pgTable(
     scanCount: integer("scan_count").default(0).notNull(),
     messageCount: integer("message_count").default(0).notNull(),
     practiceCount: integer("practice_count").default(0).notNull(),
+    // Audio/Live Session Usage
+    liveSessionCount: integer("live_session_count").default(0).notNull(),
+    liveMinutesUsed: decimal("live_minutes_used", { precision: 10, scale: 2 }).default("0").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

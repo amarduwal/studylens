@@ -43,8 +43,12 @@ interface AudioLiveSessionProps {
   language?: string;
   subject?: string;
   educationLevel?: string;
-  onClose?: () => void;
   initialSessionId?: string;
+  maxDurationMinutes?: number;
+  remainingMinutes?: number;
+  onSessionStart?: () => Promise<boolean>;
+  onSessionEnd?: (durationMinutes: number) => Promise<boolean>;
+  onClose?: () => void;
 }
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected';
@@ -56,6 +60,10 @@ export function AudioLiveSession({
   language: propLanguage = 'en',
   subject,
   educationLevel,
+  maxDurationMinutes,
+  remainingMinutes,
+  onSessionStart,
+  onSessionEnd,
   onClose,
 }: AudioLiveSessionProps) {
   const { selectedLanguage } = useScanStore();
@@ -102,6 +110,10 @@ export function AudioLiveSession({
 
   const [continuationEnabled, setContinuationEnabled] = useState(false);
   const [continuationPart, setContinuationPart] = useState(0);
+
+  // Duration tracking state:
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [remainingTime, setRemainingTime] = useState<number | null>(null);
 
   const {
     sessions: previousSessions,
@@ -318,6 +330,26 @@ export function AudioLiveSession({
       setMessages([]);
       isCleaningUpRef.current = false;
 
+      // Check if we can start
+      if (onSessionStart) {
+        const canStart = await onSessionStart();
+        if (!canStart) {
+          setError('Unable to start session. Please check your limits.');
+          return;
+        }
+      }
+
+      setSessionStartTime(new Date());
+
+      // Calculate effective max duration
+      const effectiveMax =
+        remainingMinutes !== undefined
+          ? Math.min(maxDurationMinutes || 60, remainingMinutes)
+          : maxDurationMinutes;
+      if (effectiveMax) {
+        setRemainingTime(effectiveMax * 60);
+      }
+
       // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -446,6 +478,9 @@ export function AudioLiveSession({
     stopAudioCapture,
     addMessage,
     isReconnecting,
+    maxDurationMinutes,
+    onSessionStart,
+    remainingMinutes,
   ]);
 
   // function to start fresh session:
@@ -480,6 +515,17 @@ export function AudioLiveSession({
     // Stop audio capture first
     stopAudioCapture();
 
+    const duration = sessionStartTime
+      ? (Date.now() - sessionStartTime.getTime()) / 60000
+      : 0;
+
+    if (onSessionEnd && duration > 0) {
+      await onSessionEnd(duration);
+    }
+
+    setSessionStartTime(null);
+    setRemainingTime(null);
+
     // Then disconnect session
     if (sessionRef.current) {
       try {
@@ -493,7 +539,23 @@ export function AudioLiveSession({
     setConnectionState('disconnected');
     setIsThinking(false);
     setIsAiSpeaking(false);
-  }, [stopAudioCapture]);
+  }, [sessionStartTime, onSessionEnd, stopAudioCapture]);
+
+  useEffect(() => {
+    if (!sessionStartTime || remainingTime === null) return;
+
+    const interval = setInterval(() => {
+      setRemainingTime((prev) => {
+        if (prev === null || prev <= 1) {
+          endSession();
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sessionStartTime, remainingTime, endSession]);
 
   const toggleMute = useCallback(() => {
     const newMuted = !isMuted;
@@ -673,6 +735,22 @@ export function AudioLiveSession({
                     ? 'Speaking...'
                     : 'Listening...')}
             </p>
+
+            {/* Show remaining time in UI (add near status): */}
+            {remainingTime !== null && connectionState === 'connected' && (
+              <p
+                className={cn(
+                  'text-xs pb-2',
+                  remainingTime < 60
+                    ? 'text-[hsl(var(--destructive))]'
+                    : 'text-[hsl(var(--muted-foreground))]',
+                )}
+              >
+                {Math.floor(remainingTime / 60)}:
+                {(remainingTime % 60).toString().padStart(2, '0')} remaining
+              </p>
+            )}
+
             {error && (
               <p className="text-[hsl(var(--destructive))] text-xs mb-4">
                 {error}
@@ -1139,11 +1217,6 @@ function ThinkingIndicator() {
       </div>
     </div>
   );
-}
-
-interface MessageWithThinking extends LiveMessage {
-  thinkingContext?: string;
-  processingTime?: number;
 }
 
 // Message Bubble Component

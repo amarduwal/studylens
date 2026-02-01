@@ -193,7 +193,14 @@ export async function getUsageStatus(
         LIMIT 1
       ),
       fallback_plan AS (
-        SELECT daily_scan_limit, daily_followup_limit, daily_practice_limit
+        SELECT
+          daily_scan_limit,
+          daily_followup_limit,
+          daily_practice_limit,
+          live_sessions_enabled,
+          daily_live_session_limit,
+          daily_live_minutes_limit,
+          max_session_duration_minutes
         FROM pricing_plans
         WHERE slug = 'free'
         LIMIT 1
@@ -202,9 +209,17 @@ export async function getUsageStatus(
         COALESCE(us.scan_count, 0) AS scan_count,
         COALESCE(us.message_count, 0) AS message_count,
         COALESCE(us.practice_count, 0) AS practice_count,
+        COALESCE(us.live_session_count, 0) AS live_session_count,
+        COALESCE(us.live_minutes_used, 0) AS live_minutes_used,
         COALESCE(us.daily_limit, fp.daily_scan_limit, 5) AS daily_limit,
         COALESCE(us.can_scan, true) AS can_scan,
-        COALESCE(us.remaining_scans, fp.daily_scan_limit, 5) AS remaining_scans
+        COALESCE(us.remaining_scans, fp.daily_scan_limit, 5) AS remaining_scans,
+        COALESCE(us.live_enabled, fp.live_sessions_enabled, false) AS live_enabled,
+        COALESCE(us.daily_live_session_limit, fp.daily_live_session_limit, 0) AS daily_live_session_limit,
+        COALESCE(us.daily_live_minutes_limit, fp.daily_live_minutes_limit, 0) AS daily_live_minutes_limit,
+        COALESCE(us.max_session_duration_minutes, fp.max_session_duration_minutes, 10) AS max_session_duration_minutes,
+        COALESCE(us.remaining_live_sessions, 0) AS remaining_live_sessions,
+        COALESCE(us.remaining_live_minutes, 0) AS remaining_live_minutes
       FROM fallback_plan fp
       LEFT JOIN usage_stats us ON true
     `);
@@ -213,12 +228,29 @@ export async function getUsageStatus(
       scan_count: number;
       message_count: number;
       practice_count: number;
+      live_session_count: number;
+      live_minutes_used: number;
       daily_limit: number;
       can_scan: boolean;
       remaining_scans: number;
+      live_enabled: boolean;
+      daily_live_session_limit: number;
+      daily_live_minutes_limit: number;
+      max_session_duration_minutes: number;
+      remaining_live_sessions: number;
+      remaining_live_minutes: number;
     };
 
     const isUnlimited = row.daily_limit === -1;
+    const isLiveUnlimited = row.daily_live_session_limit === -1;
+
+    // Determine if can start live session
+    const canStartLive = row.live_enabled && (
+      isLiveUnlimited || (
+        row.remaining_live_sessions > 0 &&
+        row.remaining_live_minutes > 0
+      )
+    );
 
     return {
       scans: {
@@ -234,10 +266,22 @@ export async function getUsageStatus(
         remaining: isUnlimited ? -1 : Math.max(0, row.daily_limit - row.message_count),
         unlimited: isUnlimited,
       },
+      live: {
+        enabled: row.live_enabled,
+        sessionsUsed: row.live_session_count,
+        sessionsLimit: isLiveUnlimited ? -1 : row.daily_live_session_limit,
+        sessionsRemaining: isLiveUnlimited ? -1 : row.remaining_live_sessions,
+        minutesUsed: Number(row.live_minutes_used),
+        minutesLimit: isLiveUnlimited ? -1 : row.daily_live_minutes_limit,
+        minutesRemaining: isLiveUnlimited ? -1 : Number(row.remaining_live_minutes),
+        maxSessionMinutes: row.max_session_duration_minutes,
+        unlimited: isLiveUnlimited,
+        canStart: canStartLive,
+      },
     };
   }
 
-  // Guest user - use function with fingerprint/IP
+  // Guest user - no live access
   const result = await db.execute(sql`
     SELECT * FROM fn_get_guest_usage(
       ${sessionId || null}::VARCHAR,
@@ -269,8 +313,50 @@ export async function getUsageStatus(
       remaining: Math.max(0, row.daily_limit - row.message_count),
       unlimited: false,
     },
+    live: {
+      enabled: false,
+      sessionsUsed: 0,
+      sessionsLimit: 0,
+      sessionsRemaining: 0,
+      minutesUsed: 0,
+      minutesLimit: 0,
+      minutesRemaining: 0,
+      maxSessionMinutes: 0,
+      unlimited: false,
+      canStart: false,
+    },
   };
 }
+
+// Function to record live session usage:
+export async function recordLiveSessionUsage(
+  userId: string,
+  action: 'start' | 'end',
+  durationMinutes?: number
+) {
+  const today = new Date().toISOString().split('T')[0];
+
+  if (action === 'start') {
+    await db.execute(sql`
+      INSERT INTO daily_usage (user_id, usage_date, live_session_count, live_minutes_used)
+      VALUES (${userId}::UUID, ${today}::DATE, 1, 0)
+      ON CONFLICT (user_id, usage_date)
+      DO UPDATE SET
+        live_session_count = daily_usage.live_session_count + 1,
+        updated_at = NOW()
+    `);
+  } else if (action === 'end' && durationMinutes) {
+    await db.execute(sql`
+      INSERT INTO daily_usage (user_id, usage_date, live_session_count, live_minutes_used)
+      VALUES (${userId}::UUID, ${today}::DATE, 0, ${durationMinutes})
+      ON CONFLICT (user_id, usage_date)
+      DO UPDATE SET
+        live_minutes_used = daily_usage.live_minutes_used + ${durationMinutes},
+        updated_at = NOW()
+    `);
+  }
+}
+
 // export async function getUsageStatus(
 //   userId?: string | null,
 //   sessionId?: string | null
