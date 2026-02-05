@@ -30,15 +30,61 @@ export const LIVE_CONFIG = {
 
   // Voice options
   VOICES: [
-    { id: "Puck", name: "Puck (Friendly)" },
-    { id: "Charon", name: "Charon (Professional)" },
-    { id: "Kore", name: "Kore (Warm)" },
-    { id: "Fenrir", name: "Fenrir (Energetic)" },
-    { id: "Aoede", name: "Aoede (Clear)" },
-  ],
+    // Male Voices
+    { id: "Puck", name: "Puck", gender: "male", description: "Friendly & Upbeat" },
+    { id: "Charon", name: "Charon", gender: "male", description: "Professional & Deep" },
+    { id: "Fenrir", name: "Fenrir", gender: "male", description: "Energetic & Dynamic" },
+    { id: "Orus", name: "Orus", gender: "male", description: "Calm & Authoritative" },
+    { id: "Achird", name: "Achird", gender: "male", description: "Warm & Conversational" },
+    { id: "Algenib", name: "Algenib", gender: "male", description: "Clear & Precise" },
+    { id: "Algieba", name: "Algieba", gender: "male", description: "Confident & Strong" },
+    { id: "Alnilam", name: "Alnilam", gender: "male", description: "Steady & Reliable" },
+    { id: "Enceladus", name: "Enceladus", gender: "male", description: "Thoughtful & Measured" },
+    { id: "Iapetus", name: "Iapetus", gender: "male", description: "Bold & Expressive" },
+    { id: "Rasalgethi", name: "Rasalgethi", gender: "male", description: "Rich & Resonant" },
+    { id: "Sadachbia", name: "Sadachbia", gender: "male", description: "Gentle & Patient" },
+    { id: "Sadaltager", name: "Sadaltager", gender: "male", description: "Articulate & Smooth" },
+    { id: "Schedar", name: "Schedar", gender: "male", description: "Commanding & Clear" },
+    { id: "Umbriel", name: "Umbriel", gender: "male", description: "Soft & Soothing" },
+    { id: "Zubenelgenubi", name: "Zubenelgenubi", gender: "male", description: "Wise & Composed" },
+
+    // Female Voices
+    { id: "Kore", name: "Kore", gender: "female", description: "Warm & Nurturing" },
+    { id: "Aoede", name: "Aoede", gender: "female", description: "Clear & Articulate" },
+    { id: "Achernar", name: "Achernar", gender: "female", description: "Bright & Cheerful" },
+    { id: "Autonoe", name: "Autonoe", gender: "female", description: "Elegant & Refined" },
+    { id: "Callirrhoe", name: "Callirrhoe", gender: "female", description: "Melodic & Pleasant" },
+    { id: "Despina", name: "Despina", gender: "female", description: "Lively & Engaging" },
+    { id: "Erinome", name: "Erinome", gender: "female", description: "Calm & Reassuring" },
+    { id: "Gacrux", name: "Gacrux", gender: "female", description: "Strong & Confident" },
+    { id: "Laomedeia", name: "Laomedeia", gender: "female", description: "Soft & Gentle" },
+    { id: "Leda", name: "Leda", gender: "female", description: "Friendly & Approachable" },
+    { id: "Pulcherrima", name: "Pulcherrima", gender: "female", description: "Graceful & Polished" },
+    { id: "Sulafat", name: "Sulafat", gender: "female", description: "Expressive & Dynamic" },
+    { id: "Vindemiatrix", name: "Vindemiatrix", gender: "female", description: "Professional & Poised" },
+    { id: "Zephyr", name: "Zephyr", gender: "female", description: "Light & Breezy" },
+  ] as const,
 
   DEFAULT_VOICE: "Puck",
 } as const;
+
+export type VoiceId = typeof LIVE_CONFIG.VOICES[number]["id"];
+export type VoiceOption = typeof LIVE_CONFIG.VOICES[number];
+
+// Helper to get voice by ID
+export function getVoiceById(id: string): VoiceOption | undefined {
+  return LIVE_CONFIG.VOICES.find(v => v.id === id);
+}
+
+// Get voices by gender
+export function getVoicesByGender(gender: "male" | "female"): VoiceOption[] {
+  return LIVE_CONFIG.VOICES.filter(v => v.gender === gender);
+}
+
+// Format voice for display: "Puck (Friendly, Male)"
+export function formatVoiceLabel(voice: VoiceOption): string {
+  return `${voice.name} (${voice.description}, ${voice.gender === 'male' ? 'Male' : 'Female'})`;
+}
 
 export const TUTOR_SYSTEM_PROMPT = `You are StudyLens Live Tutor, an interactive AI teaching assistant for real-time educational support.
 

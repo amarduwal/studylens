@@ -34,7 +34,9 @@ import {
   formatDuration,
   FormattedMessageContent,
   formatTime,
+  VoiceSelector,
 } from './helper';
+import { LIVE_CONFIG, VoiceId } from '@/lib/live/constants';
 
 interface AudioLiveSessionProps {
   apiKey: string;
@@ -75,6 +77,12 @@ export function AudioLiveSession({
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Voice selection
+  const [selectedVoice, setSelectedVoice] = useState<VoiceId>(
+    LIVE_CONFIG.DEFAULT_VOICE,
+  );
+  const [showSettings, setShowSettings] = useState(false);
 
   // Messages
   const [messages, setMessages] = useState<LiveMessage[]>([]);
@@ -151,6 +159,35 @@ export function AudioLiveSession({
 
     // Apply max height constraint
     textarea.style.height = `${Math.min(scrollHeight, 120)}px`;
+  }, []);
+
+  // Handle voice change
+  const handleVoiceChange = useCallback(async (voiceId: VoiceId) => {
+    setSelectedVoice(voiceId);
+
+    // If connected, need to reconnect with new voice
+    if (sessionRef.current?.connected) {
+      setConnectionState('connecting');
+      try {
+        await sessionRef.current.changeVoice(voiceId);
+        setConnectionState('connected');
+      } catch (err) {
+        console.error('Failed to change voice:', err);
+        setError('Failed to change voice');
+        setConnectionState('connected'); // Stay connected with old voice
+      }
+    }
+
+    // Store preference
+    localStorage.setItem('preferred-voice', voiceId);
+  }, []);
+
+  // Load preferred voice on mount
+  useEffect(() => {
+    const savedVoice = localStorage.getItem('preferred-voice') as VoiceId;
+    if (savedVoice && LIVE_CONFIG.VOICES.some((v) => v.id === savedVoice)) {
+      setSelectedVoice(savedVoice);
+    }
   }, []);
 
   // Auto-resize on content change
@@ -370,6 +407,7 @@ export function AudioLiveSession({
           language,
           subject,
           educationLevel,
+          voiceId: selectedVoice,
           resumeSessionId: isNewSession
             ? undefined
             : currentSessionDbId || undefined,
@@ -472,6 +510,7 @@ export function AudioLiveSession({
     language,
     subject,
     educationLevel,
+    selectedVoice,
     currentSessionDbId,
     isNewSession,
     startAudioCapture,
@@ -645,22 +684,28 @@ export function AudioLiveSession({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Voice Selector - Only show when not connected */}
+            <VoiceSelector
+              selectedVoice={selectedVoice}
+              onVoiceChange={handleVoiceChange}
+              disabled={connectionState === 'connecting'}
+            />
+
+            {/* New Session Button */}
             <button
               onClick={() => {
                 startNewSession();
                 setShowHistory(false);
               }}
-              className="w-full p-2 rounded-lg text-left transition-colors
-             bg-[hsl(var(--primary)/0.1)] border border-[hsl(var(--primary)/0.3)]
-             hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.15)]"
+              className="p-2 rounded-lg transition-colors
+                bg-[hsl(var(--primary)/0.1)] border border-[hsl(var(--primary)/0.3)]
+                hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.15)]"
+              title="New Session"
             >
-              <div className="flex items-center gap-2">
-                <Plus className="w-4 h-4 text-[hsl(var(--primary))]" />
-                <span className="text-sm font-medium text-[hsl(var(--primary))]">
-                  New Session
-                </span>
-              </div>
+              <Plus className="w-4 h-4 text-[hsl(var(--primary))]" />
             </button>
+
+            {/* Audio Transcription Toggle */}
             <button
               onClick={() => setShowTranscript(!showTranscript)}
               className={cn(
@@ -672,6 +717,8 @@ export function AudioLiveSession({
             >
               <MessageSquare className="w-4 h-4" />
             </button>
+
+            {/* Live Audio Session */}
             <button
               onClick={() => setShowHistory(!showHistory)}
               className={cn(
@@ -698,12 +745,27 @@ export function AudioLiveSession({
             )}
           </div>
         </div>
+
+        {/* Show current voice when connected */}
+        {connectionState === 'connected' && (
+          <div className="px-4 py-1 bg-[hsl(var(--muted)/0.3)] border-b border-[hsl(var(--border))] flex items-center gap-2 text-xs">
+            <span className="text-[hsl(var(--muted-foreground))]">Voice:</span>
+            <span className="font-medium">
+              {LIVE_CONFIG.VOICES.find((v) => v.id === selectedVoice)?.name}
+              {
+                LIVE_CONFIG.VOICES.find((v) => v.id === selectedVoice)?.gender
+              }{' '}
+            </span>
+          </div>
+        )}
+
         {/* Add progress display in UI: */}
         {isAiSpeaking && responseProgress && responseProgress.duration > 5 && (
           <div className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
             Recording: {responseProgress.duration.toFixed(1)}s
           </div>
         )}
+
         {/* Main Content - Stacked on Mobile, Side by Side on Desktop */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Audio Section */}

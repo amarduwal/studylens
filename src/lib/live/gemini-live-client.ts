@@ -1,7 +1,8 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { LiveSessionService, LiveMessage } from "./live-session-service";
-import { LIVE_CONFIG } from "./constants";
+import { LIVE_CONFIG, VoiceId } from "./constants";
 import { VOICE_SYSTEM_PROMPT } from "../voice-prompts";
+import { parseResponseToStructured } from "./response-parser";
 
 export interface GeminiLiveCallbacks {
   onConnected: () => void;
@@ -28,6 +29,7 @@ export interface SessionConfig {
   educationLevel?: string;
   subject?: string;
   resumeSessionId?: string;
+  voiceId?: VoiceId
 }
 
 export class GeminiLiveSession {
@@ -97,6 +99,9 @@ export class GeminiLiveSession {
   private readonly MAX_AUDIO_DURATION_PER_MESSAGE = 60; // 60 seconds per message
   private savedAudioDuration: number = 0;
 
+  private selectedVoice: VoiceId;
+  private lastUserQuestion: string = "";
+
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
   private textToAudioData(text: string): ArrayBuffer {
@@ -156,7 +161,20 @@ export class GeminiLiveSession {
     this.dbService = new LiveSessionService();
     this.clientSessionId = `live_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.onAudioLevel = callbacks.onAudioLevel;
+    this.selectedVoice = config.voiceId || LIVE_CONFIG.DEFAULT_VOICE;
   }
+
+  // Method to change voice (requires reconnection)
+  async changeVoice(voiceId: VoiceId): Promise<void> {
+    this.selectedVoice = voiceId;
+    // Voice change requires reconnection
+    if (this.isConnected) {
+      console.log(`🎤 Changing voice to ${voiceId}, reconnecting...`);
+      await this.disconnect();
+      await this.connect();
+    }
+  }
+
 
   private resetAudioSaveTimeout(): void {
     this.clearAudioSaveTimeout();
@@ -306,7 +324,7 @@ export class GeminiLiveSession {
 
   async connect(): Promise<void> {
     try {
-      console.log("Connecting to Gemini Live API...");
+      console.log("Connecting to Gemini Live API with voice: ${this.selectedVoice}...");
 
       this.audioContext = new AudioContext({ sampleRate: 24000 });
       this.startTime = new Date();
@@ -353,7 +371,7 @@ export class GeminiLiveSession {
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
-                voiceName: LIVE_CONFIG.DEFAULT_VOICE,
+                voiceName: this.selectedVoice,
               },
             },
           },
@@ -506,6 +524,7 @@ export class GeminiLiveSession {
       if (userTranscript && userTranscript !== this.lastUserTranscript) {
         console.log("✅ USER TRANSCRIPT FOUND:", userTranscript);
         this.lastUserTranscript = userTranscript;
+        this.lastUserQuestion = userTranscript;
         this.callbacks.onTranscript(userTranscript, "user");
 
         await this.saveMessage({
@@ -630,6 +649,12 @@ export class GeminiLiveSession {
       const messageContent = this.currentAssistantText || "[Audio response]";
       const processingTime = this.responseStartTime ? Date.now() - this.responseStartTime : undefined;
 
+      // Parse the response into structured format
+      const structuredResponse = parseResponseToStructured(messageContent, {
+        subject: this.config.subject,
+        question: this.lastUserQuestion,
+      });
+
       // Use the service method that handles audio upload
       const savedMessage = await this.dbService.addMessageWithAudio(
         {
@@ -638,7 +663,9 @@ export class GeminiLiveSession {
           content: messageContent,
           metadata: {
             processingTime,
+            voiceId: this.selectedVoice,
             thinkingContext: `Analyzed input and generated ${this.audioChunksForStorage.length > 0 ? 'audio' : 'text'} response`,
+            structured: structuredResponse,
           },
         },
         this.audioChunksForStorage,
@@ -768,6 +795,7 @@ export class GeminiLiveSession {
     this.lastActivityTime = Date.now();
 
     // Track original query for continuations
+    this.lastUserQuestion = text;
     this.originalQuery = text;
     this.continuationCount = 0;
     this.shouldRequestContinuation = false;
@@ -1087,5 +1115,9 @@ export class GeminiLiveSession {
 
   getSessionDbId(): string | null {
     return this.dbService.getSessionId();
+  }
+
+  get currentVoice(): VoiceId {
+    return this.selectedVoice;
   }
 }
