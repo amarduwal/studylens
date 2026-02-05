@@ -30,6 +30,9 @@ export class LiveSessionService {
   private sessionDbId: string | null = null;
   private baseUrl: string;
 
+  private readonly MAX_CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks for upload
+  private readonly MAX_AUDIO_DURATION = 120; // 2 minutes max per message
+
   constructor(baseUrl: string = "") {
     this.baseUrl = baseUrl;
   }
@@ -143,6 +146,88 @@ export class LiveSessionService {
   /**
    * Add a message with audio - uploads via API
    */
+  // async addMessageWithAudio(
+  //   message: Omit<LiveMessage, "id" | "createdAt" | "audioUrl" | "audioKey" | "duration">,
+  //   audioChunks: ArrayBuffer[],
+  //   sampleRate: number = 24000
+  // ): Promise<LiveMessage | null> {
+  //   if (!this.sessionDbId) return null;
+
+  //   // If no audio chunks, just save text message
+  //   if (!audioChunks || audioChunks.length === 0) {
+  //     return this.addMessage(message);
+  //   }
+
+  //   try {
+  //     console.log(`🔧 Combining ${audioChunks.length} audio chunks...`);
+
+  //     // Combine all audio chunks
+  //     const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  //     const combinedBuffer = new ArrayBuffer(totalLength);
+  //     const combinedView = new Uint8Array(combinedBuffer);
+
+  //     let offset = 0;
+  //     for (const chunk of audioChunks) {
+  //       combinedView.set(new Uint8Array(chunk), offset);
+  //       offset += chunk.byteLength;
+  //     }
+
+  //     // Convert PCM to WAV format in browser
+  //     const wavBuffer = this.pcmToWav(new Int16Array(combinedBuffer), sampleRate);
+  //     console.log(`🎵 WAV size: ${(wavBuffer.byteLength / 1024).toFixed(2)} KB`);
+
+  //     // Calculate actual duration
+  //     const duration = totalLength / (sampleRate * 2); // 16-bit = 2 bytes per sample
+  //     console.log(`⏱️ Audio duration: ${duration.toFixed(2)} seconds`);
+
+  //     // Create form data for upload
+  //     const formData = new FormData();
+  //     const audioBlob = new Blob([wavBuffer], { type: "audio/wav" });
+  //     formData.append("audio", audioBlob, "response.wav");
+  //     formData.append("content", message.content);
+  //     formData.append("role", message.role);
+  //     formData.append("type", "audio");
+  //     formData.append("duration", duration.toString());
+  //     if (message.metadata) {
+  //       formData.append("metadata", JSON.stringify({
+  //         ...message.metadata,
+  //         chunkCount: audioChunks.length,
+  //         totalBytes: totalLength,
+  //         wavBytes: wavBuffer.byteLength,
+  //       }));
+  //     }
+
+  //     console.log("📤 Uploading audio to server...");
+
+  //     // Upload via API
+  //     const response = await fetch(
+  //       `${this.baseUrl}/api/live-sessions/${this.sessionDbId}/audio`,
+  //       {
+  //         method: "POST",
+  //         body: formData,
+  //       }
+  //     );
+
+  //     const data = await response.json();
+
+  //     if (!data.success) {
+  //       console.error("Audio upload failed:", data.error);
+  //       // Fallback to text-only message
+  //       return this.addMessage(message);
+  //     }
+
+  //     console.log("✅ Audio saved successfully:", data.message?.id);
+  //     return data.message;
+  //   } catch (error) {
+  //     console.error("Failed to upload audio:", error);
+  //     // Fallback to text-only message
+  //     return this.addMessage(message);
+  //   }
+  // }
+
+  /**
+   * Add a message with audio - handles large files with chunking
+   */
   async addMessageWithAudio(
     message: Omit<LiveMessage, "id" | "createdAt" | "audioUrl" | "audioKey" | "duration">,
     audioChunks: ArrayBuffer[],
@@ -156,71 +241,215 @@ export class LiveSessionService {
     }
 
     try {
-      console.log(`🔧 Combining ${audioChunks.length} audio chunks...`);
-
-      // Combine all audio chunks
       const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-      const combinedBuffer = new ArrayBuffer(totalLength);
-      const combinedView = new Uint8Array(combinedBuffer);
-
-      let offset = 0;
-      for (const chunk of audioChunks) {
-        combinedView.set(new Uint8Array(chunk), offset);
-        offset += chunk.byteLength;
-      }
-
-      // Convert PCM to WAV format in browser
-      const wavBuffer = this.pcmToWav(new Int16Array(combinedBuffer), sampleRate);
-      console.log(`🎵 WAV size: ${(wavBuffer.byteLength / 1024).toFixed(2)} KB`);
-
-      // Calculate actual duration
       const duration = totalLength / (sampleRate * 2); // 16-bit = 2 bytes per sample
-      console.log(`⏱️ Audio duration: ${duration.toFixed(2)} seconds`);
 
-      // Create form data for upload
-      const formData = new FormData();
-      const audioBlob = new Blob([wavBuffer], { type: "audio/wav" });
-      formData.append("audio", audioBlob, "response.wav");
-      formData.append("content", message.content);
-      formData.append("role", message.role);
-      formData.append("type", "audio");
-      formData.append("duration", duration.toString());
-      if (message.metadata) {
-        formData.append("metadata", JSON.stringify({
-          ...message.metadata,
-          chunkCount: audioChunks.length,
-          totalBytes: totalLength,
-          wavBytes: wavBuffer.byteLength,
-        }));
+      console.log(`🔧 Processing ${audioChunks.length} chunks, ${(totalLength / 1024 / 1024).toFixed(2)}MB, ${duration.toFixed(2)}s`);
+
+      // For very long audio (>2 min), split into multiple messages
+      if (duration > this.MAX_AUDIO_DURATION) {
+        console.log(`⚠️ Audio too long (${duration.toFixed(0)}s), splitting into parts`);
+        return await this.saveAudioInParts(message, audioChunks, sampleRate);
       }
 
-      console.log("📤 Uploading audio to server...");
+      // Combine chunks efficiently using typed arrays
+      const combinedBuffer = this.combineChunksEfficiently(audioChunks);
 
-      // Upload via API
-      const response = await fetch(
-        `${this.baseUrl}/api/live-sessions/${this.sessionDbId}/audio`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      // Convert PCM to WAV
+      const wavBuffer = this.pcmToWav(new Int16Array(combinedBuffer), sampleRate);
+      console.log(`🎵 WAV size: ${(wavBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
 
-      const data = await response.json();
+      // Upload with retry
+      return await this.uploadWithRetry(message, wavBuffer, duration, 3);
 
-      if (!data.success) {
-        console.error("Audio upload failed:", data.error);
-        // Fallback to text-only message
-        return this.addMessage(message);
-      }
-
-      console.log("✅ Audio saved successfully:", data.message?.id);
-      return data.message;
     } catch (error) {
-      console.error("Failed to upload audio:", error);
+      console.error("Failed to process audio:", error);
       // Fallback to text-only message
-      return this.addMessage(message);
+      return this.addMessage({
+        ...message,
+        content: message.content + " [Audio failed to save]",
+      });
     }
   }
+
+  /**
+   * Combine ArrayBuffers efficiently to avoid memory issues
+   */
+  private combineChunksEfficiently(chunks: ArrayBuffer[]): ArrayBuffer {
+    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+
+    // Use Uint8Array for efficient copying
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      result.set(new Uint8Array(chunk), offset);
+      offset += chunk.byteLength;
+    }
+
+    return result.buffer;
+  }
+
+  /**
+   * Upload with retry logic
+   */
+  private async uploadWithRetry(
+    message: Omit<LiveMessage, "id" | "createdAt" | "audioUrl" | "audioKey" | "duration">,
+    wavBuffer: ArrayBuffer,
+    duration: number,
+    maxRetries: number
+  ): Promise<LiveMessage | null> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📤 Upload attempt ${attempt}/${maxRetries}...`);
+
+        const formData = new FormData();
+        const audioBlob = new Blob([wavBuffer], { type: "audio/wav" });
+        formData.append("audio", audioBlob, "response.wav");
+        formData.append("content", message.content);
+        formData.append("role", message.role);
+        formData.append("type", "audio");
+        formData.append("duration", duration.toString());
+        if (message.metadata) {
+          formData.append("metadata", JSON.stringify({
+            ...message.metadata,
+            wavBytes: wavBuffer.byteLength,
+            uploadAttempt: attempt,
+          }));
+        }
+
+        const controller = new AbortController();
+        // Increase timeout for large files (1 minute base + 30s per MB)
+        const timeoutMs = 60000 + (wavBuffer.byteLength / 1024 / 1024) * 30000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        const response = await fetch(
+          `${this.baseUrl}/api/live-sessions/${this.sessionDbId}/audio`,
+          {
+            method: "POST",
+            body: formData,
+            signal: controller.signal,
+          }
+        );
+
+        clearTimeout(timeoutId);
+
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(data.error || "Upload failed");
+        }
+
+        console.log("✅ Audio saved successfully:", data.message?.id);
+        return data.message;
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.error(`❌ Upload attempt ${attempt} failed:`, lastError.message);
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    console.error("❌ All upload attempts failed");
+    // Fallback to text-only
+    return this.addMessage({
+      ...message,
+      content: message.content + " [Audio upload failed after retries]",
+      metadata: {
+        ...message.metadata,
+        audioError: lastError?.message,
+      },
+    });
+  }
+
+  /**
+   * Save very long audio as multiple messages
+   */
+  private async saveAudioInParts(
+    message: Omit<LiveMessage, "id" | "createdAt" | "audioUrl" | "audioKey" | "duration">,
+    audioChunks: ArrayBuffer[],
+    sampleRate: number
+  ): Promise<LiveMessage | null> {
+    const bytesPerSecond = sampleRate * 2; // 16-bit
+    const maxBytesPerPart = this.MAX_AUDIO_DURATION * bytesPerSecond;
+
+    let currentPartChunks: ArrayBuffer[] = [];
+    let currentPartBytes = 0;
+    let partNumber = 1;
+    let lastMessage: LiveMessage | null = null;
+
+    for (const chunk of audioChunks) {
+      currentPartChunks.push(chunk);
+      currentPartBytes += chunk.byteLength;
+
+      if (currentPartBytes >= maxBytesPerPart) {
+        // Save this part
+        const partContent = partNumber === 1
+          ? message.content
+          : `[Continued from part ${partNumber - 1}]`;
+
+        console.log(`💾 Saving part ${partNumber} (${(currentPartBytes / 1024 / 1024).toFixed(2)}MB)`);
+
+        const combinedBuffer = this.combineChunksEfficiently(currentPartChunks);
+        const wavBuffer = this.pcmToWav(new Int16Array(combinedBuffer), sampleRate);
+        const duration = currentPartBytes / bytesPerSecond;
+
+        lastMessage = await this.uploadWithRetry(
+          {
+            ...message,
+            content: partContent,
+            metadata: {
+              ...message.metadata,
+              partNumber,
+              isPartial: true,
+            },
+          },
+          wavBuffer,
+          duration,
+          3
+        );
+
+        // Reset for next part
+        currentPartChunks = [];
+        currentPartBytes = 0;
+        partNumber++;
+      }
+    }
+
+    // Save remaining chunks
+    if (currentPartChunks.length > 0) {
+      const combinedBuffer = this.combineChunksEfficiently(currentPartChunks);
+      const wavBuffer = this.pcmToWav(new Int16Array(combinedBuffer), sampleRate);
+      const duration = currentPartBytes / bytesPerSecond;
+
+      lastMessage = await this.uploadWithRetry(
+        {
+          ...message,
+          content: partNumber === 1 ? message.content : `[Final part ${partNumber}]`,
+          metadata: {
+            ...message.metadata,
+            partNumber,
+            isPartial: partNumber > 1,
+            isFinal: true,
+          },
+        },
+        wavBuffer,
+        duration,
+        3
+      );
+    }
+
+    return lastMessage;
+  }
+
 
   /**
    * Convert PCM Int16 to WAV format (browser-compatible)

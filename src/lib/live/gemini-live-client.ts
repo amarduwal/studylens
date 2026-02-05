@@ -557,11 +557,11 @@ export class GeminiLiveSession {
               this.audioChunksForStorage.push(audioData);
 
               // Check if we should save intermediate chunk (for very long responses)
-              // const unsavedDuration = this.totalAudioDuration - this.savedAudioDuration;
-              // if (unsavedDuration >= this.MAX_AUDIO_DURATION_PER_MESSAGE) {
-              //   console.log(`💾 Saving intermediate chunk at ${this.totalAudioDuration.toFixed(2)}s`);
-              //   await this.saveIntermediateAudio();
-              // }
+              const unsavedDuration = this.totalAudioDuration - this.savedAudioDuration;
+              if (unsavedDuration >= this.MAX_AUDIO_DURATION_PER_MESSAGE) {
+                console.log(`💾 Saving intermediate chunk at ${this.totalAudioDuration.toFixed(2)}s`);
+                await this.saveIntermediateAudio();
+              }
 
               // Calculate and emit audio level
               const level = this.calculateAudioLevel(audioData);
