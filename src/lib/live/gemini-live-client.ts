@@ -104,6 +104,9 @@ export class GeminiLiveSession {
 
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
+  private hasUserInteracted: boolean = false;
+  private userMessageSavedForTurn: boolean = false;
+
   private textToAudioData(text: string): ArrayBuffer {
     // Create a simple audio representation of silence
     // The API will see activity and the text content in the message
@@ -239,7 +242,12 @@ export class GeminiLiveSession {
 
       // Don't save this as a user message - it's automatic
       this.callbacks.onThinkingStart?.();
-      await this.session.send(continuationPrompt);
+      // await this.session.send(continuationPrompt);
+      // Use sendClientContent instead of send
+      await this.session.sendClientContent({
+        turns: [{ role: "user", parts: [{ text: continuationPrompt }] }],
+        turnComplete: true,
+      });
     } catch (error) {
       console.error("Continuation request failed:", error);
     }
@@ -299,6 +307,7 @@ export class GeminiLiveSession {
     this.totalAudioDuration = 0;
     this.lastAudioChunkTime = 0;
     this.lastUserTranscript = "";
+    this.userMessageSavedForTurn = false;
   }
 
   private calculateAudioLevel(audioData: ArrayBuffer): number {
@@ -450,20 +459,23 @@ export class GeminiLiveSession {
     this.keepAliveInterval = setInterval(async () => {
       if (this.session && this.isConnected) {
         try {
-          // Send empty audio to keep connection alive
-          // Gemini expects activity to keep the connection open
-          const silentAudio = new ArrayBuffer(320); // Small silent audio chunk
+          const silentAudio = new ArrayBuffer(320);
           const base64 = this.arrayBufferToBase64(silentAudio);
 
           if (typeof this.session.sendRealtimeInput === 'function') {
-            await this.session.sendRealtimeInput({
+            const result = this.session.sendRealtimeInput({
               audio: {
                 data: base64,
                 mimeType: "audio/pcm;rate=16000",
               },
-            }).catch((err: Error) => {
-              console.warn("Keep-alive failed:", err);
             });
+
+            // Only call .catch if it's a promise
+            if (result && typeof result.catch === 'function') {
+              result.catch((err: Error) => {
+                console.warn("Keep-alive failed:", err);
+              });
+            }
           }
 
           console.log("Keep-alive sent");
@@ -474,6 +486,7 @@ export class GeminiLiveSession {
     }, this.KEEP_ALIVE_INTERVAL);
   }
 
+
   private stopKeepAlive(): void {
     if (this.keepAliveInterval) {
       clearInterval(this.keepAliveInterval);
@@ -483,6 +496,9 @@ export class GeminiLiveSession {
 
   // inactivity timer:
   private resetInactivityTimer(): void {
+    // Don't start timer until user has interacted
+    if (!this.hasUserInteracted) return;
+
     this.clearInactivityTimer();
     this.lastActivityTime = Date.now();
 
@@ -505,35 +521,84 @@ export class GeminiLiveSession {
 
     try {
       // DEBUG: Log full message structure to find transcript location
-      console.log("=== GEMINI MESSAGE ===", JSON.stringify(message, null, 2).substring(0, 500));
-
+      // console.log("=== GEMINI MESSAGE ===", JSON.stringify(message, null, 2).substring(0, 500));
+      console.log("=== GEMINI MESSAGE ===", JSON.stringify(message, null, 2));
 
       // Check for user speech transcription in ALL possible locations
-      const possibleTranscripts = [
+      // const possibleTranscripts = [
+      //   message?.serverContent?.inputTranscript,
+      //   message?.serverContent?.outputTranscript,
+      //   message?.inputTranscript,
+      //   message?.transcript,
+      //   message?.speechResults?.[0]?.alternatives?.[0]?.transcript,
+      //   message?.results?.[0]?.alternatives?.[0]?.transcript,
+      //   message?.serverContent?.modelTurn?.parts?.find((p: any) => p.transcript)?.transcript,
+      // ];
+      // ===== CHECK FOR USER SPEECH TRANSCRIPTION =====
+      const possibleUserTranscripts = [
         message?.serverContent?.inputTranscript,
-        message?.serverContent?.outputTranscript,
         message?.inputTranscript,
         message?.transcript,
         message?.speechResults?.[0]?.alternatives?.[0]?.transcript,
         message?.results?.[0]?.alternatives?.[0]?.transcript,
-        message?.serverContent?.modelTurn?.parts?.find((p: any) => p.transcript)?.transcript,
       ];
 
-      const userTranscript = possibleTranscripts.find(t => t && typeof t === 'string' && t.trim());
+      const userTranscript = possibleUserTranscripts.find(t => t && typeof t === 'string' && t.trim());
 
       if (userTranscript && userTranscript !== this.lastUserTranscript) {
         console.log("✅ USER TRANSCRIPT FOUND:", userTranscript);
         this.lastUserTranscript = userTranscript;
         this.lastUserQuestion = userTranscript;
+
+        // Check if session is ready
+        const sessionId = this.dbService.getSessionId();
+        console.log("📝 Saving user message, sessionId:", sessionId);
+
+        if (!sessionId) {
+          console.error("❌ Cannot save user message: No session ID");
+          // Queue message for later or retry
+        } else {
+          const savedUserMessage = await this.dbService.addMessage({
+            role: "user",
+            type: "audio",
+            content: userTranscript,
+            metadata: {
+              inputType: "voice",
+              hasTranscript: true,
+            },
+          });
+
+          console.log("💾 User message saved:", savedUserMessage?.id);
+
+          if (savedUserMessage) {
+            this.callbacks.onMessageSaved(savedUserMessage);
+          }
+        }
+
         this.callbacks.onTranscript(userTranscript, "user");
-
-        await this.saveMessage({
-          role: "user",
-          type: "text",
-          content: userTranscript,
-        });
-
         this.callbacks.onThinkingStart?.();
+      }
+
+      // ===== DETECT SPEECH START (even without transcript) =====
+      if (message?.serverContent?.interrupted || message?.realtimeInput) {
+        // User started speaking - we'll get transcript later
+        console.log("🎤 User speech detected");
+      }
+
+      // ===== CHECK FOR ASSISTANT/OUTPUT TRANSCRIPT =====
+      const possibleOutputTranscripts = [
+        message?.serverContent?.outputTranscript,
+        message?.outputTranscript,
+        message?.serverContent?.modelTurn?.transcript,
+      ];
+
+      const outputTranscript = possibleOutputTranscripts.find(t => t && typeof t === 'string' && t.trim());
+
+      if (outputTranscript) {
+        console.log("✅ ASSISTANT TRANSCRIPT FOUND:", outputTranscript.substring(0, 100));
+        // Append to current assistant text
+        this.currentAssistantText += (this.currentAssistantText ? ' ' : '') + outputTranscript;
+        this.callbacks.onTranscript(outputTranscript, "assistant");
       }
 
       if (message.serverContent) {
@@ -541,6 +606,29 @@ export class GeminiLiveSession {
 
         // Handle model turn (audio/text)
         if (content.modelTurn?.parts) {
+          // AI responding = user finished speaking, save user message
+          if (!this.userMessageSavedForTurn) {
+            this.userMessageSavedForTurn = true;
+
+            const sessionId = this.dbService.getSessionId();
+            if (sessionId) {
+              const savedUserMessage = await this.dbService.addMessage({
+                role: "user",
+                type: "audio",
+                content: this.lastUserTranscript || "[Voice input]",
+                metadata: {
+                  inputType: "voice",
+                  hasTranscript: !!this.lastUserTranscript,
+                },
+              });
+
+              if (savedUserMessage) {
+                console.log("💾 User message saved:", savedUserMessage.id);
+                this.callbacks.onMessageSaved(savedUserMessage);
+              }
+            }
+          }
+
           // Start collecting audio if not already
           if (!this.isCollectingAudio) {
             this.isCollectingAudio = true;
@@ -576,11 +664,11 @@ export class GeminiLiveSession {
               this.audioChunksForStorage.push(audioData);
 
               // Check if we should save intermediate chunk (for very long responses)
-              const unsavedDuration = this.totalAudioDuration - this.savedAudioDuration;
-              if (unsavedDuration >= this.MAX_AUDIO_DURATION_PER_MESSAGE) {
-                console.log(`💾 Saving intermediate chunk at ${this.totalAudioDuration.toFixed(2)}s`);
-                await this.saveIntermediateAudio();
-              }
+              // const unsavedDuration = this.totalAudioDuration - this.savedAudioDuration;
+              // if (unsavedDuration >= this.MAX_AUDIO_DURATION_PER_MESSAGE) {
+              //   console.log(`💾 Saving intermediate chunk at ${this.totalAudioDuration.toFixed(2)}s`);
+              //   await this.saveIntermediateAudio();
+              // }
 
               // Calculate and emit audio level
               const level = this.calculateAudioLevel(audioData);
@@ -593,6 +681,7 @@ export class GeminiLiveSession {
 
             // Handle text chunks
             if (part.text) {
+              console.log("📝 Text part received:", part.text.substring(0, 100));
               this.currentAssistantText += part.text;
               this.callbacks.onTextResponse(part.text, true);
               this.callbacks.onTranscript(part.text, "assistant");
@@ -600,9 +689,18 @@ export class GeminiLiveSession {
           }
         }
 
+        // ===== CHECK FOR TRANSCRIPT IN TURN COMPLETE =====
+        if (content.outputTranscript) {
+          console.log("✅ OUTPUT TRANSCRIPT IN CONTENT:", content.outputTranscript.substring(0, 100));
+          if (!this.currentAssistantText.includes(content.outputTranscript)) {
+            this.currentAssistantText += (this.currentAssistantText ? ' ' : '') + content.outputTranscript;
+          }
+        }
+
         // Handle generation complete - this comes before turnComplete
         if (content.generationComplete) {
           console.log("✅ Generation complete signal received");
+          console.log("📝 Final assistant text:", this.currentAssistantText.substring(0, 200));
           this.isGenerationComplete = true;
           // Wait a bit for any final chunks, then save
           this.scheduleAudioSave(1000);
@@ -646,16 +744,19 @@ export class GeminiLiveSession {
     try {
       this.messageCount++;
 
-      const messageContent = this.currentAssistantText || "[Audio response]";
+      let messageContent = this.currentAssistantText || "";
+
+      // If no text was captured but we have audio, note it
+      if (!messageContent && this.audioChunksForStorage.length > 0) {
+        messageContent = "[Audio response - transcription pending]";
+      }
+
       const processingTime = this.responseStartTime ? Date.now() - this.responseStartTime : undefined;
 
-      // Parse the response into structured format
-      const structuredResponse = parseResponseToStructured(messageContent, {
-        subject: this.config.subject,
-        question: this.lastUserQuestion,
-      });
+      console.log(`💾 Saving message: ${messageContent.substring(0, 100)}...`);
+      console.log(`📊 Audio chunks: ${this.audioChunksForStorage.length}, Duration: ${this.totalAudioDuration.toFixed(2)}s`);
 
-      // Use the service method that handles audio upload
+      /// Save the message first (with audio)
       const savedMessage = await this.dbService.addMessageWithAudio(
         {
           role: "assistant",
@@ -664,8 +765,9 @@ export class GeminiLiveSession {
           metadata: {
             processingTime,
             voiceId: this.selectedVoice,
+            audioDuration: this.totalAudioDuration,
+            hasTranscript: !!this.currentAssistantText?.trim(),
             thinkingContext: `Analyzed input and generated ${this.audioChunksForStorage.length > 0 ? 'audio' : 'text'} response`,
-            structured: structuredResponse,
           },
         },
         this.audioChunksForStorage,
@@ -675,6 +777,15 @@ export class GeminiLiveSession {
       if (savedMessage) {
         this.callbacks.onMessageSaved(savedMessage);
         this.callbacks.onTextResponse(messageContent, false);
+
+        // Analyze the response in background if we have meaningful text
+        if (messageContent.length > 30 && !messageContent.startsWith("[Audio response")) {
+          this.analyzeAndUpdateMessage(savedMessage.id!, messageContent);
+        } else if (this.audioChunksForStorage.length > 0 && savedMessage.audioUrl) {
+          // If no text but has audio, we could transcribe it
+          // For now, skip analysis for audio-only
+          console.log("⚠️ Audio-only response, skipping analysis (no transcript)");
+        }
       }
 
       // Reset accumulators
@@ -685,6 +796,56 @@ export class GeminiLiveSession {
       console.error("Error saving assistant message:", error);
     }
   }
+
+  /**
+   * Analyze response and update message with structured data
+   */
+  private async analyzeAndUpdateMessage(messageId: string, content: string): Promise<void> {
+    try {
+      const textToAnalyze = content;
+
+      // If content is placeholder, try to get transcript from audio
+      if (content.startsWith("[Audio response") || content.length < 30) {
+        console.log("⚠️ Content too short or placeholder, checking for audio transcript...");
+        // Could fetch audio and transcribe here if needed
+        // For now, skip analysis
+        return;
+      }
+
+      console.log("🔍 Analyzing response for structured format...");
+
+      const analysis = await this.dbService.analyzeResponse(textToAnalyze, {
+        language: this.config.language,
+        subject: this.config.subject,
+        userQuestion: this.lastUserQuestion,
+      });
+
+      if (analysis) {
+        console.log("✅ Analysis complete, updating message...");
+
+        await this.dbService.updateMessageMetadata(messageId, {
+          structured: analysis,
+          analysisComplete: true,
+        });
+
+        this.callbacks.onMessageSaved({
+          id: messageId,
+          role: "assistant",
+          type: "audio",
+          content: textToAnalyze,
+          metadata: {
+            structured: analysis,
+            analysisComplete: true,
+            voiceId: this.selectedVoice,
+          },
+        } as LiveMessage);
+      }
+    } catch (error) {
+      console.error("Failed to analyze response:", error);
+    }
+  }
+
+
   private async saveMessage(message: Omit<LiveMessage, "id" | "createdAt">): Promise<void> {
     try {
       this.messageCount++;
@@ -763,12 +924,21 @@ export class GeminiLiveSession {
   }
 
   async sendAudio(audioData: ArrayBuffer): Promise<void> {
-    if (!this.session || !this.isConnected) return;
+    if (!this.session || !this.isConnected) {
+      console.warn("⚠️ sendAudio: Not connected");
+      return;
+    }
 
-    this.resetInactivityTimer(); // Add this
+    this.hasUserInteracted = true;
+    this.resetInactivityTimer();
 
     try {
       const base64Audio = this.arrayBufferToBase64(audioData);
+
+      // Log every 50th chunk to avoid spam
+      if (Math.random() < 0.02) {
+        console.log("🎤 Sending audio:", audioData.byteLength, "bytes");
+      }
 
       await this.session.sendRealtimeInput({
         audio: {
@@ -791,33 +961,50 @@ export class GeminiLiveSession {
       return;
     }
 
+    this.hasUserInteracted = true;
     this.resetInactivityTimer();
     this.lastActivityTime = Date.now();
 
-    // Track original query for continuations
     this.lastUserQuestion = text;
     this.originalQuery = text;
     this.continuationCount = 0;
     this.shouldRequestContinuation = false;
 
     try {
-      // Save user message first
-      await this.saveMessage({
+      // Ensure session exists
+      const sessionId = this.dbService.getSessionId();
+      console.log("📝 Sending text, sessionId:", sessionId);
+
+      if (!sessionId) {
+        console.error("❌ No session ID available");
+        throw new Error("Session not initialized");
+      }
+
+      // Save user message FIRST
+      const savedMessage = await this.dbService.addMessage({
         role: "user",
         type: "text",
         content: text,
+        metadata: {
+          inputType: "text",
+        },
       });
+
+      console.log("💾 User text message saved:", savedMessage?.id);
+
+      if (savedMessage) {
+        this.callbacks.onMessageSaved(savedMessage);
+      }
 
       this.callbacks.onTranscript(text, "user");
       this.callbacks.onThinkingStart?.();
 
-      console.log("Sending text via session.sendClientContent()");
       await this.session.sendClientContent({
         turns: [{ role: "user", parts: [{ text }] }],
         turnComplete: true,
       });
 
-      console.log("Text sent successfully:", text);
+      console.log("✅ Text sent successfully");
     } catch (error) {
       console.error("Error sending text:", error);
       this.callbacks.onThinkingEnd?.();
@@ -1069,6 +1256,7 @@ export class GeminiLiveSession {
     console.log("Disconnecting...");
 
     // Mark as manual disconnect to prevent reconnection
+    this.hasUserInteracted = false;
     this.isManualDisconnect = true;
     this.isConnected = false;
 

@@ -128,19 +128,32 @@ export class LiveSessionService {
   async addMessage(
     message: Omit<LiveMessage, "id" | "createdAt">
   ): Promise<LiveMessage | null> {
-    if (!this.sessionDbId) return null;
+    console.log("📤 addMessage called, sessionDbId:", this.sessionDbId);
 
-    const response = await fetch(
-      `${this.baseUrl}/api/live-sessions/${this.sessionDbId}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(message),
-      }
-    );
+    if (!this.sessionDbId) {
+      console.error("❌ addMessage: No sessionDbId set!");
+      return null;
+    }
 
-    const data = await response.json();
-    return data.success ? data.message : null;
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/api/live-sessions/${this.sessionDbId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(message),
+        }
+      );
+
+      const data = await response.json();
+
+      console.log("📥 addMessage response:", data.success, data.message?.id);
+
+      return data.success ? data.message : null;
+    } catch (error) {
+      console.error("❌ addMessage error:", error);
+      return null;
+    }
   }
 
   /**
@@ -269,6 +282,101 @@ export class LiveSessionService {
         ...message,
         content: message.content + " [Audio failed to save]",
       });
+    }
+  }
+
+  /**
+ * Transcribe audio file to text
+ */
+  async transcribeAudio(audioUrl: string): Promise<string | null> {
+    try {
+      // Fetch the audio file
+      const audioResponse = await fetch(audioUrl);
+      const audioBlob = await audioResponse.blob();
+
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "audio.wav");
+
+      const response = await fetch(`${this.baseUrl}/api/transcribe-audio`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error("Transcription failed:", data.error);
+        return null;
+      }
+
+      return data.transcript;
+    } catch (error) {
+      console.error("Failed to transcribe audio:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Analyze audio response text and get structured format
+   */
+  async analyzeResponse(
+    responseText: string,
+    options: {
+      language?: string;
+      subject?: string;
+      userQuestion?: string;
+    } = {}
+  ): Promise<any | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/analyze-audio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responseText,
+          language: options.language || "en",
+          subject: options.subject,
+          userQuestion: options.userQuestion,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error("Analysis failed:", data.error);
+        return null;
+      }
+
+      return data.analysis;
+    } catch (error) {
+      console.error("Failed to analyze response:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Update message metadata (for adding analysis after save)
+   */
+  async updateMessageMetadata(
+    messageId: string,
+    metadata: Record<string, unknown>
+  ): Promise<boolean> {
+    if (!this.sessionDbId) return false;
+
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/api/live-sessions/${this.sessionDbId}/messages/${messageId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ metadata }),
+        }
+      );
+
+      const data = await response.json();
+      return data.success;
+    } catch (error) {
+      console.error("Failed to update message metadata:", error);
+      return false;
     }
   }
 

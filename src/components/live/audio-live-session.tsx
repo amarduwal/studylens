@@ -22,6 +22,7 @@ import {
   Clock,
   ChevronUp,
   Plus,
+  Pause,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GeminiLiveSession } from '@/lib/live/gemini-live-client';
@@ -93,12 +94,14 @@ export function AudioLiveSession({
 
   // Refs
   const sessionRef = useRef<GeminiLiveSession | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const isCleaningUpRef = useRef(false);
+  const usedDurationRef = useRef(0);
 
   const [audioLevel, setAudioLevel] = useState(0);
   const [micLevel, setMicLevel] = useState(0);
@@ -118,10 +121,14 @@ export function AudioLiveSession({
 
   const [continuationEnabled, setContinuationEnabled] = useState(false);
   const [continuationPart, setContinuationPart] = useState(0);
+  const [isAutoContinuing, setIsAutoContinuing] = useState(false);
 
   // Duration tracking state:
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [remainingTime, setRemainingTime] = useState<number | null>(null);
+  const [usedDuration, setUsedDuration] = useState(0);
+
+  const [isPaused, setIsPaused] = useState(false);
 
   const {
     sessions: previousSessions,
@@ -253,61 +260,81 @@ export function AudioLiveSession({
   }, []);
 
   const startAudioCapture = useCallback(
-    (stream: MediaStream) => {
+    async (stream: MediaStream) => {
       try {
         const audioContext = new AudioContext({ sampleRate: 16000 });
         audioContextRef.current = audioContext;
 
         const source = audioContext.createMediaStreamSource(stream);
 
-        // Add analyser for mic visualization
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.5;
-        source.connect(analyser);
+        // Use AudioWorklet instead of ScriptProcessor
+        try {
+          await audioContext.audioWorklet.addModule('/audio-processor.js');
 
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        audioProcessorRef.current = processor;
+          const workletNode = new AudioWorkletNode(
+            audioContext,
+            'audio-processor',
+          );
 
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          workletNode.port.onmessage = (event) => {
+            if (isMuted || !sessionRef.current?.connected) return;
 
-        // Separate interval for smoother visualization
-        const levelInterval = setInterval(() => {
-          if (!analyser) return;
-          analyser.getByteFrequencyData(dataArray);
+            const { pcmData, level } = event.data;
+            sessionRef.current?.sendAudio(pcmData);
+            setMicLevel(level);
+          };
 
-          // Calculate RMS for more accurate level
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            sum += dataArray[i] * dataArray[i];
-          }
-          const rms = Math.sqrt(sum / dataArray.length);
-          const normalizedLevel = Math.min(1, rms / 128);
+          source.connect(workletNode);
+          workletNode.connect(audioContext.destination);
+        } catch (workletError) {
+          // Fallback to ScriptProcessor if AudioWorklet fails
+          console.warn(
+            'AudioWorklet not supported, using ScriptProcessor fallback',
+          );
 
-          setMicLevel(normalizedLevel);
-        }, 50); // Update every 50ms
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.5;
+          source.connect(analyser);
 
-        processor.onaudioprocess = (e) => {
-          if (isMuted || !sessionRef.current?.connected) return;
+          const processor = audioContext.createScriptProcessor(4096, 1, 1);
+          audioProcessorRef.current = processor;
 
-          const inputData = e.inputBuffer.getChannelData(0);
-          const pcmData = new Int16Array(inputData.length);
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-          for (let i = 0; i < inputData.length; i++) {
-            pcmData[i] = Math.max(
-              -32768,
-              Math.min(32767, inputData[i] * 32768),
-            );
-          }
+          const levelInterval = setInterval(() => {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              sum += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            const normalizedLevel = Math.min(1, rms / 128);
+            setMicLevel(normalizedLevel);
+          }, 50);
 
-          sessionRef.current?.sendAudio(pcmData.buffer);
-        };
+          processor.onaudioprocess = (e) => {
+            if (isMuted || !sessionRef.current?.connected) return;
 
-        source.connect(processor);
-        processor.connect(audioContext.destination);
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcmData = new Int16Array(inputData.length);
 
-        // Store interval for cleanup
-        (audioContextRef.current as any)._levelInterval = levelInterval;
+            for (let i = 0; i < inputData.length; i++) {
+              pcmData[i] = Math.max(
+                -32768,
+                Math.min(32767, inputData[i] * 32768),
+              );
+            }
+
+            sessionRef.current?.sendAudio(pcmData.buffer);
+          };
+
+          source.connect(processor);
+          processor.connect(audioContext.destination);
+
+          (audioContextRef.current as any)._levelInterval = levelInterval;
+        }
       } catch (err) {
         console.error('Audio capture error:', err);
       }
@@ -365,6 +392,7 @@ export function AudioLiveSession({
       setConnectionState('connecting');
       setError(null);
       setMessages([]);
+      setIsPaused(false);
       isCleaningUpRef.current = false;
 
       // Check if we can start
@@ -378,14 +406,50 @@ export function AudioLiveSession({
 
       setSessionStartTime(new Date());
 
-      // Calculate effective max duration
-      const effectiveMax =
-        remainingMinutes !== undefined
-          ? Math.min(maxDurationMinutes || 60, remainingMinutes)
-          : maxDurationMinutes;
-      if (effectiveMax) {
-        setRemainingTime(effectiveMax * 60);
+      // Get previously used duration (in seconds)
+      const previouslyUsedSeconds = usedDurationRef.current;
+      console.log(`📊 Previously used: ${previouslyUsedSeconds}s`);
+
+      // Calculate max allowed time
+      const maxDuration = maxDurationMinutes ?? -1;
+      const isUnlimited = maxDuration === -1;
+      const hasRemainingLimit =
+        remainingMinutes !== undefined && remainingMinutes !== -1;
+
+      if (isUnlimited && !hasRemainingLimit) {
+        // Unlimited user
+        setRemainingTime(null);
+        console.log('⏱️ Unlimited session - no timer');
+      } else {
+        // Calculate max seconds
+        let maxSeconds: number | null = null;
+
+        if (hasRemainingLimit && remainingMinutes !== undefined) {
+          // User has remaining minutes limit
+          const maxFromSession = maxDuration > 0 ? maxDuration * 60 : Infinity;
+          maxSeconds = Math.min(maxFromSession, remainingMinutes * 60);
+        } else if (maxDuration > 0) {
+          // Use session max duration
+          maxSeconds = maxDuration * 60;
+        }
+
+        if (maxSeconds && maxSeconds > 0 && maxSeconds !== Infinity) {
+          // Subtract already used time, ensure whole number
+          const remaining = Math.floor(
+            Math.max(0, maxSeconds - previouslyUsedSeconds),
+          );
+          setRemainingTime(remaining);
+          console.log(
+            `⏱️ Timer set: ${maxSeconds}s max - ${previouslyUsedSeconds}s used = ${remaining}s remaining`,
+          );
+        } else {
+          setRemainingTime(null);
+        }
       }
+
+      // Reset ref after applying
+      usedDurationRef.current = 0;
+      setUsedDuration(0);
 
       // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -422,7 +486,12 @@ export function AudioLiveSession({
               setCurrentSessionDbId(dbId);
               setIsNewSession(false);
             }
-            startAudioCapture(audioStreamRef.current!);
+            // Set session start time for duration tracking
+            setSessionStartTime(new Date());
+
+            if (stream && stream.active) {
+              startAudioCapture(stream);
+            }
           },
           onDisconnected: () => {
             setConnectionState('disconnected');
@@ -461,6 +530,7 @@ export function AudioLiveSession({
             setIsThinking(false);
           },
           onTurnComplete: () => {
+            setIsAutoContinuing(false);
             setIsAiSpeaking(false);
             setResponseProgress(null);
           },
@@ -491,11 +561,13 @@ export function AudioLiveSession({
           onContinuing: (part) => {
             setContinuationPart(part);
             setIsThinking(true);
+            setIsAutoContinuing(true);
           },
         },
       );
 
       sessionRef.current = session;
+      sessionIdRef.current = session.getSessionDbId();
       await session.connect();
     } catch (err) {
       console.error('Failed to start:', err);
@@ -528,11 +600,25 @@ export function AudioLiveSession({
     setIsNewSession(true);
     setMessages([]);
     setExpandedMessages(new Set());
+    usedDurationRef.current = 0;
+    setUsedDuration(0);
   }, []);
 
   // function to load and resume a previous session:
   const resumePreviousSession = useCallback(async (sessionDbId: string) => {
     try {
+      // Load session details including duration
+      const sessionResponse = await fetch(`/api/live-sessions/${sessionDbId}`);
+      const sessionData = await sessionResponse.json();
+
+      if (!sessionData.success || !sessionData.session) {
+        console.error('Failed to load session');
+        return;
+      }
+
+      const session = sessionData.session;
+      const usedSeconds = session.duration || 0; // Duration already used
+
       // Load messages first
       const response = await fetch(
         `/api/live-sessions/${sessionDbId}/messages`,
@@ -544,6 +630,11 @@ export function AudioLiveSession({
         setCurrentSessionDbId(sessionDbId);
         setIsNewSession(false);
         setShowHistory(false);
+        // Set both state and ref
+        setUsedDuration(usedSeconds);
+        usedDurationRef.current = usedSeconds;
+
+        console.log(`📂 Resumed session with ${usedSeconds}s already used`);
       }
     } catch (error) {
       console.error('Failed to resume session:', error);
@@ -551,21 +642,40 @@ export function AudioLiveSession({
   }, []);
 
   const endSession = useCallback(async () => {
+    // Reset pause state
+    setIsPaused(false);
     // Stop audio capture first
     stopAudioCapture();
 
-    const duration = sessionStartTime
-      ? (Date.now() - sessionStartTime.getTime()) / 60000
+    // Calculate actual duration used in this session
+    const sessionDuration = sessionStartTime
+      ? (Date.now() - sessionStartTime.getTime()) / 1000 // in seconds
       : 0;
 
-    if (onSessionEnd && duration > 0) {
-      await onSessionEnd(duration);
+    // Update session with duration
+    if (currentSessionDbId && sessionDuration > 0) {
+      try {
+        await fetch(`/api/live-sessions/${currentSessionDbId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            duration: sessionDuration,
+            status: 'paused', // Mark as paused, not ended
+          }),
+        });
+      } catch (err) {
+        console.error('Failed to update session duration:', err);
+      }
+    }
+
+    // Callback for billing/tracking
+    if (onSessionEnd && sessionDuration > 0) {
+      await onSessionEnd(sessionDuration / 60); // Convert to minutes
     }
 
     setSessionStartTime(null);
     setRemainingTime(null);
 
-    // Then disconnect session
     if (sessionRef.current) {
       try {
         await sessionRef.current.disconnect();
@@ -578,10 +688,23 @@ export function AudioLiveSession({
     setConnectionState('disconnected');
     setIsThinking(false);
     setIsAiSpeaking(false);
-  }, [sessionStartTime, onSessionEnd, stopAudioCapture]);
+  }, [sessionStartTime, currentSessionDbId, onSessionEnd, stopAudioCapture]);
 
   useEffect(() => {
-    if (!sessionStartTime || remainingTime === null) return;
+    // Skip if no timer, unlimited, paused, or user actively engaged (not auto-continuation)
+    const shouldPause =
+      isPaused ||
+      (isAiSpeaking && !isAutoContinuing) ||
+      (isThinking && !isAutoContinuing);
+
+    if (
+      !sessionStartTime ||
+      remainingTime === null ||
+      remainingTime <= 0 ||
+      shouldPause
+    ) {
+      return;
+    }
 
     const interval = setInterval(() => {
       setRemainingTime((prev) => {
@@ -589,12 +712,41 @@ export function AudioLiveSession({
           endSession();
           return null;
         }
-        return prev - 1;
+        return Math.floor(prev - 1);
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [sessionStartTime, remainingTime, endSession]);
+  }, [
+    sessionStartTime,
+    remainingTime,
+    isPaused,
+    isAiSpeaking,
+    isThinking,
+    isAutoContinuing,
+    endSession,
+  ]);
+
+  // pause/resume function
+  const togglePause = useCallback(() => {
+    const newPaused = !isPaused;
+    setIsPaused(newPaused);
+
+    // Also mute mic when paused
+    if (newPaused) {
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      }
+    } else {
+      if (audioStreamRef.current && !isMuted) {
+        audioStreamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+      }
+    }
+  }, [isPaused, isMuted]);
 
   const toggleMute = useCallback(() => {
     const newMuted = !isMuted;
@@ -657,9 +809,12 @@ export function AudioLiveSession({
 
   // Cleanup on unmount
   useEffect(() => {
+    const currentSessionId = sessionIdRef.current;
+
     return () => {
-      stopAudioCapture();
-      if (sessionRef.current) {
+      // Only cleanup if same session (not Fast Refresh)
+      if (sessionRef.current && sessionIdRef.current === currentSessionId) {
+        stopAudioCapture();
         sessionRef.current.disconnect().catch(() => {});
         sessionRef.current = null;
       }
@@ -790,7 +945,14 @@ export function AudioLiveSession({
                   Reconnecting... ({reconnectAttempt}/3)
                 </span>
               )}
+              {connectionState === 'connected' && isPaused && (
+                <span className="flex items-center gap-2 text-[hsl(var(--warning))]">
+                  <Pause className="w-4 h-4" />
+                  Paused
+                </span>
+              )}
               {connectionState === 'connected' &&
+                !isPaused &&
                 (isThinking
                   ? 'Thinking...'
                   : isAiSpeaking
@@ -799,19 +961,27 @@ export function AudioLiveSession({
             </p>
 
             {/* Show remaining time in UI (add near status): */}
-            {remainingTime !== null && connectionState === 'connected' && (
-              <p
-                className={cn(
-                  'text-xs pb-2',
-                  remainingTime < 60
-                    ? 'text-[hsl(var(--destructive))]'
-                    : 'text-[hsl(var(--muted-foreground))]',
-                )}
-              >
-                {Math.floor(remainingTime / 60)}:
-                {(remainingTime % 60).toString().padStart(2, '0')} remaining
-              </p>
-            )}
+            {/* Timer - only show if there's a limit */}
+            {remainingTime !== null &&
+              remainingTime > 0 &&
+              connectionState === 'connected' && (
+                <p
+                  className={cn(
+                    'text-xs pb-2 flex items-center gap-1',
+                    remainingTime < 60
+                      ? 'text-[hsl(var(--destructive))]'
+                      : 'text-[hsl(var(--muted-foreground))]',
+                  )}
+                >
+                  {isPaused && <Pause className="w-3 h-3" />}
+                  {Math.floor(remainingTime / 60)}:
+                  {Math.floor(remainingTime % 60)
+                    .toString()
+                    .padStart(2, '0')}{' '}
+                  remaining
+                  {isPaused && <span className="ml-1">(paused)</span>}
+                </p>
+              )}
 
             {error && (
               <p className="text-[hsl(var(--destructive))] text-xs mb-4">
@@ -819,19 +989,21 @@ export function AudioLiveSession({
               </p>
             )}
             {/* Visualizer Circle */}
-            <div className="relative w-32 h-32 mb-6">
+            <div className="relative w-32 h-32 mb-6 z-0">
               {/* Background Ring with Pulse */}
               <div
                 className={cn(
                   'absolute inset-0 rounded-full transition-all duration-300',
                   connectionState === 'connected'
-                    ? isThinking
+                    ? isPaused
                       ? 'bg-[hsl(var(--warning)/0.15)] ring-2 ring-[hsl(var(--warning))]'
-                      : isAiSpeaking
-                        ? 'bg-[hsl(var(--success)/0.15)] ring-2 ring-[hsl(var(--success))]'
-                        : isMuted
-                          ? 'bg-[hsl(var(--destructive)/0.15)] ring-2 ring-[hsl(var(--destructive))]'
-                          : 'bg-[hsl(var(--primary)/0.15)] ring-2 ring-[hsl(var(--primary))]'
+                      : isThinking
+                        ? 'bg-[hsl(var(--warning)/0.15)] ring-2 ring-[hsl(var(--warning))]'
+                        : isAiSpeaking
+                          ? 'bg-[hsl(var(--success)/0.15)] ring-2 ring-[hsl(var(--success))]'
+                          : isMuted
+                            ? 'bg-[hsl(var(--destructive)/0.15)] ring-2 ring-[hsl(var(--destructive))]'
+                            : 'bg-[hsl(var(--primary)/0.15)] ring-2 ring-[hsl(var(--primary))]'
                     : connectionState === 'connecting'
                       ? isReconnecting
                         ? 'bg-[hsl(var(--warning)/0.15)] ring-2 ring-[hsl(var(--warning))] animate-pulse'
@@ -839,8 +1011,9 @@ export function AudioLiveSession({
                       : 'bg-[hsl(var(--muted))]',
                 )}
               >
-                {/* Animated pulse ring when active */}
+                {/* Animated pulse ring when active (not when paused) */}
                 {connectionState === 'connected' &&
+                  !isPaused &&
                   (isAiSpeaking || (!isMuted && !isThinking)) && (
                     <div
                       className={cn(
@@ -891,12 +1064,13 @@ export function AudioLiveSession({
             </div>
             {/* Controls */}
             <div className="flex items-center gap-3">
+              {/* Mute Button */}
               <button
                 onClick={toggleMute}
-                disabled={connectionState !== 'connected'}
+                disabled={connectionState !== 'connected' || isPaused}
                 className={cn(
                   'p-3 rounded-full transition-all',
-                  connectionState !== 'connected'
+                  connectionState !== 'connected' || isPaused
                     ? 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed'
                     : isMuted
                       ? 'bg-[hsl(var(--destructive))] text-white'
@@ -910,6 +1084,28 @@ export function AudioLiveSession({
                 )}
               </button>
 
+              {/* Pause/Resume Button - NEW */}
+              <button
+                onClick={togglePause}
+                disabled={connectionState !== 'connected'}
+                className={cn(
+                  'p-3 rounded-full transition-all',
+                  connectionState !== 'connected'
+                    ? 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed'
+                    : isPaused
+                      ? 'bg-[hsl(var(--warning))] text-white'
+                      : 'bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]',
+                )}
+                title={isPaused ? 'Resume session' : 'Pause session'}
+              >
+                {isPaused ? (
+                  <Play className="w-5 h-5" />
+                ) : (
+                  <Pause className="w-5 h-5" />
+                )}
+              </button>
+
+              {/* Call Button */}
               <button
                 onClick={
                   connectionState === 'disconnected' ? startSession : endSession
@@ -933,6 +1129,7 @@ export function AudioLiveSession({
                 )}
               </button>
 
+              {/* Speaker Button */}
               <button
                 onClick={() => setIsSpeakerOn((prev) => !prev)}
                 disabled={connectionState !== 'connected'}
@@ -982,13 +1179,26 @@ export function AudioLiveSession({
             {!isAiSpeaking && !isThinking && messages.length > 0 && (
               <button
                 onClick={() => {
+                  // Unpause if paused
+                  if (isPaused) {
+                    setIsPaused(false);
+                    // Re-enable mic if not muted
+                    if (audioStreamRef.current && !isMuted) {
+                      audioStreamRef.current
+                        .getAudioTracks()
+                        .forEach((track) => {
+                          track.enabled = true;
+                        });
+                    }
+                  }
+
                   if (sessionRef.current?.connected) {
                     sessionRef.current.sendText('Please continue explaining');
                   }
                 }}
                 className="mt-2 px-3 py-1.5 rounded-lg text-xs
-               bg-[hsl(var(--muted))] hover:bg-[hsl(var(--accent))]
-               text-[hsl(var(--foreground))] pb-2"
+                  bg-[hsl(var(--muted))] hover:bg-[hsl(var(--accent))]
+                  text-[hsl(var(--foreground))] pb-2"
               >
                 Continue →
               </button>

@@ -1,6 +1,5 @@
 import { LIVE_CONFIG, VoiceId, VoiceOption } from '@/lib/live/constants';
 import { LiveMessage } from '@/lib/live/live-session-service';
-import { StructuredResponse } from '@/lib/live/response-parser';
 import { cn } from '@/lib/utils';
 import {
   Bot,
@@ -8,12 +7,16 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Loader2,
+  MessageSquare,
+  Mic,
   Play,
   Square,
   User,
   Volume2,
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import { StructuredResponseDisplay } from './structured-response';
 
 // Message Bubble Component
 interface MessageBubbleProps {
@@ -34,40 +37,101 @@ export function MessageBubble({
   onStop,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user';
-  // Extract metadata
-  const metadata = message.metadata as
-    | {
-        structured?: StructuredResponse;
-        voiceId?: string;
-        processingTime?: number;
-      }
-    | undefined;
-  const processingTime = metadata?.processingTime;
-  const structured = metadata?.structured;
-  const hasStructured =
-    !isUser &&
-    structured &&
-    (structured.simpleAnswer ||
-      structured.stepByStep?.length > 0 ||
-      structured.concept);
-  const voiceId = metadata?.voiceId;
+
+  // Parse metadata safely
+  const metadata = (message.metadata || {}) as {
+    structured?: {
+      explanation?: {
+        simpleAnswer?: string;
+        stepByStep?: {
+          step: number;
+          action: string;
+          explanation: string;
+          formula?: string | null;
+        }[];
+        concept?: string | null;
+        whyItMatters?: string | null;
+        practiceQuestions?: string[];
+        tips?: string[];
+      };
+      subject?: string | null;
+      topic?: string | null;
+      difficulty?: 'easy' | 'medium' | 'hard' | null;
+      keywords?: string[];
+      summary?: string;
+    };
+    analysisComplete?: boolean;
+    voiceId?: string;
+    processingTime?: number;
+    audioDuration?: number;
+    inputType?: 'voice' | 'text';
+    hasTranscript?: boolean;
+  };
+
+  const structured = metadata.structured;
+  const analysisComplete = metadata.analysisComplete;
+  const isVoiceInput =
+    isUser && (metadata.inputType === 'voice' || message.type === 'audio');
+  const voiceId = metadata.voiceId;
   const voice = voiceId
     ? LIVE_CONFIG.VOICES.find((v) => v.id === voiceId)
     : null;
 
-  // Truncate content for preview
-  const previewLength = 50;
-  const previewContent =
-    hasStructured && structured?.simpleAnswer
-      ? structured.simpleAnswer.length > previewLength
-        ? structured.simpleAnswer.substring(0, previewLength) + '...'
-        : structured.simpleAnswer
-      : message.content.length > previewLength
-        ? message.content.substring(0, previewLength) + '...'
-        : message.content;
+  // Check for valid structured data - be more thorough
+  const hasValidStructured =
+    !isUser &&
+    structured &&
+    structured.explanation &&
+    (structured.explanation.simpleAnswer ||
+      (structured.explanation.stepByStep &&
+        structured.explanation.stepByStep.length > 0));
 
+  // Debug log
+  console.log('MessageBubble render:', {
+    messageId: message.id,
+    isUser,
+    hasStructured: hasValidStructured,
+    structuredExists: !!structured,
+    simpleAnswer: structured?.explanation?.simpleAnswer?.substring(0, 50),
+    content: message.content?.substring(0, 50),
+  });
+
+  // Check if analysis pending
+  const isAnalyzing =
+    !isUser &&
+    !analysisComplete &&
+    !hasValidStructured &&
+    message.content &&
+    message.content.length > 30 &&
+    !message.content.startsWith('[Audio response');
+
+  // Get display content for preview
+  const getPreviewContent = (): string => {
+    if (isUser) {
+      if (isVoiceInput && !message.content) {
+        return '🎤 Voice input';
+      }
+      return message.content || 'Voice input';
+    }
+
+    // For AI: prefer structured data
+    if (hasValidStructured && structured?.explanation?.simpleAnswer) {
+      return structured.explanation.simpleAnswer;
+    }
+    if (structured?.summary) {
+      return structured.summary;
+    }
+    return message.content || '[Processing...]';
+  };
+
+  const previewLength = 60;
+  const displayContent = getPreviewContent();
+  const previewContent =
+    displayContent.length > previewLength
+      ? displayContent.substring(0, previewLength) + '...'
+      : displayContent;
   const hasLongContent =
-    message.content.length > previewLength || hasStructured;
+    displayContent.length > previewLength || hasValidStructured;
 
   return (
     <div className={cn('flex items-start gap-2', isUser && 'flex-row-reverse')}>
@@ -79,7 +143,11 @@ export function MessageBubble({
         )}
       >
         {isUser ? (
-          <User className="w-3 h-3 text-[hsl(var(--primary-foreground))]" />
+          isVoiceInput ? (
+            <Mic className="w-3 h-3 text-[hsl(var(--primary-foreground))]" />
+          ) : (
+            <User className="w-3 h-3 text-[hsl(var(--primary-foreground))]" />
+          )
         ) : (
           <Bot className="w-3 h-3 text-[hsl(var(--secondary-foreground))]" />
         )}
@@ -92,7 +160,15 @@ export function MessageBubble({
           isUser && 'flex flex-col items-end',
         )}
       >
-        {/* Clickable Message Bubble */}
+        {/* Voice Input Label */}
+        {isUser && isVoiceInput && (
+          <div className="flex items-center gap-1 mb-1 text-xs text-[hsl(var(--muted-foreground))]">
+            <Mic className="w-3 h-3" />
+            <span>Voice Input</span>
+          </div>
+        )}
+
+        {/* Message Bubble */}
         <button
           onClick={onToggleExpand}
           className={cn(
@@ -104,43 +180,108 @@ export function MessageBubble({
           )}
         >
           {isExpanded ? (
-            // Expanded View
-            hasStructured && structured ? (
-              <StructuredResponseDisplay structured={structured} />
-            ) : (
-              <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                <FormattedMessageContent
-                  content={message.content}
-                  isUser={isUser}
+            // ===== EXPANDED VIEW =====
+            <div className="space-y-2">
+              {/* AI Response with Structured Data */}
+              {!isUser && hasValidStructured && structured ? (
+                <StructuredResponseDisplay
+                  structured={structured}
+                  rawContent={message.content}
                 />
-              </p>
-            )
+              ) : !isUser && !hasValidStructured ? (
+                // AI response without structured data
+                <div>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                    <FormattedMessageContent
+                      content={message.content || ''}
+                      isUser={false}
+                    />
+                  </p>
+                  {isAnalyzing && (
+                    <div className="flex items-center gap-2 text-[hsl(var(--muted-foreground))] pt-2 mt-2 border-t border-[hsl(var(--border)/0.5)]">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span className="text-xs">
+                        Analyzing for better formatting...
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // User message
+                <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                  {isVoiceInput && !message.content ? (
+                    <span className="flex items-center gap-2 italic opacity-70">
+                      <Mic className="w-4 h-4" />
+                      Voice input (no transcript available)
+                    </span>
+                  ) : (
+                    <FormattedMessageContent
+                      content={message.content || ''}
+                      isUser={true}
+                    />
+                  )}
+                </p>
+              )}
+            </div>
           ) : (
-            // Collapsed View
+            // ===== COLLAPSED VIEW =====
             <div className="flex items-center gap-2">
-              <p className="truncate flex-1 opacity-70">{previewContent}</p>
+              {isUser && isVoiceInput && !message.content ? (
+                <span className="flex items-center gap-1.5 opacity-70">
+                  <Mic className="w-3 h-3" />
+                  <span>Voice input</span>
+                </span>
+              ) : (
+                <p className="truncate flex-1 opacity-70">{previewContent}</p>
+              )}
               {hasLongContent && (
                 <ChevronDown className="w-3 h-3 shrink-0 opacity-50" />
+              )}
+              {isAnalyzing && (
+                <Loader2 className="w-3 h-3 shrink-0 animate-spin opacity-50" />
               )}
             </div>
           )}
         </button>
 
-        {/* Expanded Meta & Audio */}
+        {/* Expanded Meta */}
         {isExpanded && (
           <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-[hsl(var(--muted-foreground))]">
             <Clock className="w-3 h-3" />
             <span>{formatTime(message.createdAt)}</span>
 
-            {processingTime && (
+            {isUser && (
               <>
                 <span>•</span>
-                <span>{processingTime}ms</span>
+                <span className="flex items-center gap-1">
+                  {isVoiceInput ? (
+                    <>
+                      <Mic className="w-3 h-3" /> Voice
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare className="w-3 h-3" /> Text
+                    </>
+                  )}
+                </span>
               </>
             )}
 
-            {/* Voice indicator */}
-            {voice && (
+            {!isUser && metadata.processingTime && (
+              <>
+                <span>•</span>
+                <span>{metadata.processingTime}ms</span>
+              </>
+            )}
+
+            {!isUser && metadata.audioDuration && (
+              <>
+                <span>•</span>
+                <span>{metadata.audioDuration.toFixed(1)}s</span>
+              </>
+            )}
+
+            {!isUser && voice && (
               <>
                 <span>•</span>
                 <span className="flex items-center gap-1">
@@ -150,7 +291,6 @@ export function MessageBubble({
               </>
             )}
 
-            {/* Audio playback button */}
             {!isUser && message.audioUrl && (
               <>
                 <span>•</span>
@@ -199,7 +339,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* Collapsed: Just show play button if audio */}
+        {/* Collapsed audio play */}
         {!isExpanded && !isUser && message.audioUrl && (
           <button
             onClick={(e) => {
@@ -511,107 +651,5 @@ export function VoiceOptionItem({
       </div>
       {isSelected && <Check className="w-4 h-4 text-[hsl(var(--primary))]" />}
     </button>
-  );
-}
-
-// Structured Response Display Component
-export function StructuredResponseDisplay({
-  structured,
-}: {
-  structured: StructuredResponse;
-}) {
-  return (
-    <div className="space-y-3 text-sm">
-      {/* Simple Answer */}
-      {structured.simpleAnswer && (
-        <div>
-          <p className="font-semibold text-[hsl(var(--primary))] mb-1 text-xs uppercase tracking-wide">
-            Answer
-          </p>
-          <p>{structured.simpleAnswer}</p>
-        </div>
-      )}
-
-      {/* Step by Step */}
-      {structured.stepByStep.length > 0 && (
-        <div>
-          <p className="font-semibold text-[hsl(var(--primary))] mb-2 text-xs uppercase tracking-wide">
-            Step-by-Step
-          </p>
-          <div className="space-y-2 ml-1">
-            {structured.stepByStep.map((step) => (
-              <div key={step.step} className="flex gap-2">
-                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))] text-xs flex items-center justify-center font-bold">
-                  {step.step}
-                </span>
-                <div className="flex-1">
-                  <p className="font-medium text-sm">{step.action}</p>
-                  {step.explanation && step.explanation !== step.action && (
-                    <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">
-                      {step.explanation}
-                    </p>
-                  )}
-                  {step.formula && (
-                    <code className="block mt-1 px-2 py-1 bg-[hsl(var(--background))] rounded text-xs font-mono border border-[hsl(var(--border))]">
-                      {step.formula}
-                    </code>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Concept */}
-      {structured.concept && (
-        <div className="p-2 bg-[hsl(var(--primary)/0.05)] rounded-lg border-l-2 border-[hsl(var(--primary))]">
-          <p className="font-semibold text-[hsl(var(--primary))] text-xs mb-1">
-            💡 Key Concept
-          </p>
-          <p className="text-xs">{structured.concept}</p>
-        </div>
-      )}
-
-      {/* Why It Matters */}
-      {structured.whyItMatters && (
-        <div className="p-2 bg-[hsl(var(--success)/0.05)] rounded-lg border-l-2 border-[hsl(var(--success))]">
-          <p className="font-semibold text-[hsl(var(--success))] text-xs mb-1">
-            🌍 Real-World Application
-          </p>
-          <p className="text-xs">{structured.whyItMatters}</p>
-        </div>
-      )}
-
-      {/* Tips */}
-      {structured.tips.length > 0 && (
-        <div>
-          <p className="font-semibold text-[hsl(var(--warning))] text-xs mb-1">
-            💡 Tips
-          </p>
-          <ul className="list-disc list-inside text-xs space-y-0.5">
-            {structured.tips.map((tip, i) => (
-              <li key={i} className="text-[hsl(var(--muted-foreground))]">
-                {tip}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Keywords */}
-      {structured.keywords.length > 0 && (
-        <div className="flex flex-wrap gap-1 pt-2 border-t border-[hsl(var(--border))]">
-          {structured.keywords.slice(0, 5).map((keyword, i) => (
-            <span
-              key={i}
-              className="px-2 py-0.5 bg-[hsl(var(--muted))] rounded-full text-xs"
-            >
-              {keyword}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }

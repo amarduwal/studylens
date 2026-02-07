@@ -36,13 +36,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { id } = await params;
     const body = await request.json();
 
+    // Get existing session to accumulate duration
+    const [existingSession] = await db
+      .select()
+      .from(liveSessions)
+      .where(eq(liveSessions.id, id))
+      .limit(1);
+
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
     };
 
     if (body.status) updateData.status = body.status;
     if (body.endedAt) updateData.endedAt = new Date(body.endedAt);
-    if (body.duration !== undefined) updateData.duration = body.duration;
+
+    // Accumulate duration instead of replacing
+    if (body.duration !== undefined) {
+      const existingDuration = existingSession?.duration || 0;
+      updateData.duration = existingDuration + body.duration;
+    }
+
     if (body.messageCount !== undefined) updateData.messageCount = body.messageCount;
     if (body.toolCallsCount !== undefined) updateData.toolCallsCount = body.toolCallsCount;
 
