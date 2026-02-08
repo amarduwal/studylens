@@ -79,9 +79,20 @@ function StepByStepSection({
 
   return (
     <div className="space-y-2">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 w-full text-left"
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsExpanded(!isExpanded);
+        }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            setIsExpanded(!isExpanded);
+          }
+        }}
+        className="flex items-center gap-2 w-full text-left cursor-pointer hover:opacity-80 transition-opacity"
       >
         <div className="p-1.5 rounded-lg bg-[hsl(var(--success)/0.1)] shrink-0">
           <ListOrdered className="w-4 h-4 text-[hsl(var(--success))]" />
@@ -94,17 +105,15 @@ function StepByStepSection({
         ) : (
           <ChevronDown className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
         )}
-      </button>
+      </div>
 
       {isExpanded && (
         <div className="ml-8 space-y-3 border-l-2 border-[hsl(var(--border))] pl-4">
           {steps.map((step, index) => (
             <div key={step.step || index} className="relative">
-              {/* Step Number Badge */}
               <div className="absolute -left-[1.35rem] top-0 w-5 h-5 rounded-full bg-[hsl(var(--success))] text-white text-xs flex items-center justify-center font-bold">
                 {step.step || index + 1}
               </div>
-
               <div className="space-y-1">
                 <p className="font-medium text-sm">{step.action}</p>
                 {step.explanation && step.explanation !== step.action && (
@@ -168,9 +177,20 @@ function PracticeQuestionsSection({ questions }: { questions: string[] }) {
 
   return (
     <div className="space-y-2">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 w-full text-left"
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsExpanded(!isExpanded);
+        }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            setIsExpanded(!isExpanded);
+          }
+        }}
+        className="flex items-center gap-2 w-full text-left cursor-pointer hover:opacity-80 transition-opacity"
       >
         <div className="p-1.5 rounded-lg bg-[hsl(var(--warning)/0.1)] shrink-0">
           <HelpCircle className="w-4 h-4 text-[hsl(var(--warning))]" />
@@ -183,7 +203,7 @@ function PracticeQuestionsSection({ questions }: { questions: string[] }) {
         ) : (
           <ChevronDown className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
         )}
-      </button>
+      </div>
 
       {isExpanded && (
         <ul className="ml-8 space-y-2">

@@ -86,21 +86,14 @@ export function MessageBubble({
       (structured.explanation.stepByStep &&
         structured.explanation.stepByStep.length > 0));
 
-  // Debug log
-  console.log('MessageBubble render:', {
-    messageId: message.id,
-    isUser,
-    hasStructured: hasValidStructured,
-    structuredExists: !!structured,
-    simpleAnswer: structured?.explanation?.simpleAnswer?.substring(0, 50),
-    content: message.content?.substring(0, 50),
-  });
+  const hasAnyStructured = structured && Object.keys(structured).length > 0;
 
   // Check if analysis pending
   const isAnalyzing =
     !isUser &&
     !analysisComplete &&
     !hasValidStructured &&
+    !hasAnyStructured &&
     message.content &&
     message.content.length > 30 &&
     !message.content.startsWith('[Audio response');
@@ -169,8 +162,11 @@ export function MessageBubble({
         )}
 
         {/* Message Bubble */}
-        <button
+        <div
           onClick={onToggleExpand}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && onToggleExpand()}
           className={cn(
             'px-3 py-2 rounded-2xl text-sm text-left w-full transition-all',
             isUser
@@ -242,7 +238,7 @@ export function MessageBubble({
               )}
             </div>
           )}
-        </button>
+        </div>
 
         {/* Expanded Meta */}
         {isExpanded && (
@@ -365,16 +361,17 @@ export function MessageBubble({
 
 // Audio Waveform Animation
 export function AudioWaveform() {
+  const heights = [4, 8, 6, 10, 7, 5, 9];
   return (
     <div className="flex items-center gap-0.5 ml-1">
-      {[1, 2, 3, 4].map((i) => (
+      {heights.map((height, i) => (
         <div
           key={i}
           className="w-0.5 bg-[hsl(var(--primary))] rounded-full animate-pulse"
           style={{
-            height: `${6 + Math.random() * 6}px`,
-            animationDelay: `${i * 0.1}s`,
-            animationDuration: '0.5s',
+            height: `${height}px`,
+            animationDelay: `${(i % 4) * 0.1}s`,
+            animationDuration: '0.6s',
           }}
         />
       ))}
