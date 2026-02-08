@@ -240,12 +240,46 @@ export function AudioLiveSession({
 
   const addMessage = useCallback((message: LiveMessage) => {
     setMessages((prev) => {
-      // Avoid duplicates
-      if (message.id && prev.some((m) => m.id === message.id)) {
-        return prev;
+      // Check if message already exists (for updates)
+      const existingIndex = message.id
+        ? prev.findIndex((m) => m.id === message.id)
+        : -1;
+
+      if (existingIndex !== -1) {
+        // UPDATE existing message (merge metadata)
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          ...message,
+          metadata: {
+            ...updated[existingIndex].metadata,
+            ...message.metadata,
+          },
+        };
+        console.log('📝 Updated message:', message.id);
+        return updated;
       }
       return [...prev, message];
     });
+  }, []);
+
+  // updateMessage function
+  const updateMessage = useCallback((updatedMessage: LiveMessage) => {
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === updatedMessage.id
+          ? {
+              ...msg,
+              ...updatedMessage,
+              metadata: {
+                ...msg.metadata,
+                ...updatedMessage.metadata,
+              },
+            }
+          : msg,
+      ),
+    );
+    console.log('📝 Message updated:', updatedMessage.id);
   }, []);
 
   const startAudioCapture = useCallback(
@@ -526,6 +560,9 @@ export function AudioLiveSession({
           onMessageSaved: (message: LiveMessage) => {
             addMessage(message);
           },
+          onMessageUpdated: (message: LiveMessage) => {
+            updateMessage(message);
+          },
           onThinkingStart: () => {
             setIsThinking(true);
           },
@@ -577,6 +614,7 @@ export function AudioLiveSession({
     startAudioCapture,
     stopAudioCapture,
     addMessage,
+    updateMessage,
     isReconnecting,
     maxDurationMinutes,
     onSessionStart,

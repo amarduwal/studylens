@@ -380,7 +380,10 @@ export function StructuredResponseDisplay({
 
       {/* Raw Transcript Toggle */}
       {rawContent && rawContent !== explanation?.simpleAnswer && (
-        <details className="pt-2 border-t border-[hsl(var(--border)/0.5)]">
+        <details
+          className="pt-2 border-t border-[hsl(var(--border)/0.5)]"
+          onClick={(e) => e.stopPropagation()}
+        >
           <summary className="text-xs text-[hsl(var(--muted-foreground))] cursor-pointer hover:text-[hsl(var(--foreground))]">
             View raw transcript
           </summary>

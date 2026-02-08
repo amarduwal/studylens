@@ -2,7 +2,6 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { LiveSessionService, LiveMessage } from "./live-session-service";
 import { LIVE_CONFIG, VoiceId } from "./constants";
 import { VOICE_SYSTEM_PROMPT } from "../voice-prompts";
-import { parseResponseToStructured } from "./response-parser";
 
 export interface GeminiLiveCallbacks {
   onConnected: () => void;
@@ -14,6 +13,7 @@ export interface GeminiLiveCallbacks {
   onInterrupted: () => void;
   onTurnComplete: () => void;
   onMessageSaved: (message: LiveMessage) => void;
+  onMessageUpdated?: (message: LiveMessage) => void;
   onThinkingStart?: () => void;
   onThinkingEnd?: () => void;
   onAudioLevel?: (level: number) => void;
@@ -748,7 +748,7 @@ export class GeminiLiveSession {
 
       // If no text was captured but we have audio, note it
       if (!messageContent && this.audioChunksForStorage.length > 0) {
-        messageContent = "[Audio response - transcription pending]";
+        messageContent = "[Audio response]";
       }
 
       const processingTime = this.responseStartTime ? Date.now() - this.responseStartTime : undefined;
@@ -809,6 +809,17 @@ export class GeminiLiveSession {
         console.log("⚠️ Content too short or placeholder, checking for audio transcript...");
         // Could fetch audio and transcribe here if needed
         // For now, skip analysis
+        await this.dbService.updateMessageMetadata(messageId, {
+          analysisComplete: true,
+        });
+        // Notify UI of update
+        this.callbacks.onMessageUpdated?.({
+          id: messageId,
+          role: "assistant",
+          type: "audio",
+          content,
+          metadata: { analysisComplete: true },
+        } as LiveMessage);
         return;
       }
 
@@ -839,9 +850,32 @@ export class GeminiLiveSession {
             voiceId: this.selectedVoice,
           },
         } as LiveMessage);
+      } else {
+        // Analysis failed - still mark as complete
+        await this.dbService.updateMessageMetadata(messageId, {
+          analysisComplete: true,
+        });
+        this.callbacks.onMessageUpdated?.({
+          id: messageId,
+          role: "assistant",
+          type: "audio",
+          content,
+          metadata: { analysisComplete: true },
+        } as LiveMessage);
       }
     } catch (error) {
       console.error("Failed to analyze response:", error);
+      // Mark as complete on error
+      await this.dbService.updateMessageMetadata(messageId, {
+        analysisComplete: true,
+      });
+      this.callbacks.onMessageUpdated?.({
+        id: messageId,
+        role: "assistant",
+        type: "audio",
+        content,
+        metadata: { analysisComplete: true },
+      } as LiveMessage);
     }
   }
 
