@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
     // Return the API key for client-side use
     // In production, you might want to use a more secure approach
-    const apiKey = process.env.GOOGLE_AI_API_KEY;
+    const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(

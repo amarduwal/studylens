@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation';
 
 export default function LivePage() {
   const router = useRouter();
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY || '';
   const { data: session } = useSession();
   const { sessionId } = useScanStore();
   const { usage, isLoading, isAuthenticated, recordStart, recordEnd } =

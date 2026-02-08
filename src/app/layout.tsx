@@ -21,7 +21,7 @@ export const viewport: Viewport = {
 
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL
   ? new URL(process.env.NEXT_PUBLIC_APP_URL)
-  : new URL('https://studylens-xi.vercel.app');
+  : new URL('https://studylens.site');
 
 export const metadata: Metadata = {
   title: 'StudyLens - AI Visual Learning Companion',
@@ -107,7 +107,7 @@ export const metadata: Metadata = {
     'virtual study partner',
   ],
 
-  authors: [{ name: 'StudyLens', url: 'https://studylens-xi.vercel.app' }],
+  authors: [{ name: 'StudyLens', url: 'https://studylens.site' }],
   creator: 'StudyLens Team',
   publisher: 'StudyLens',
   robots: {
@@ -169,17 +169,17 @@ export const metadata: Metadata = {
   // App links for better mobile integration
   appLinks: {
     ios: {
-      url: 'https://studylens-xi.vercel.app',
+      url: 'https://studylens.site',
       app_store_id: 'id123456789', // Add when app is in App Store
       app_name: 'StudyLens',
     },
     android: {
       package: 'com.studylens.app',
       app_name: 'StudyLens',
-      url: 'https://studylens-xi.vercel.app',
+      url: 'https://studylens.site',
     },
     web: {
-      url: 'https://studylens-xi.vercel.app',
+      url: 'https://studylens.site',
       should_fallback: false,
     },
   },
@@ -274,7 +274,7 @@ export default function RootLayout({
         />
 
         {/* Canonical URL */}
-        <link rel="canonical" href="https://studylens-xi.vercel.app" />
+        <link rel="canonical" href="https://studylens.site" />
       </head>
       <body className={`min-h-screen flex flex-col ${inter.className}`}>
         <AuthProvider>

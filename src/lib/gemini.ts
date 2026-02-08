@@ -14,6 +14,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GEMINI_API_KEY! });
 
 // Model to use - Gemini 2.5 Flash for speed, or gemini-1.5-pro for complex analysis
 const MODEL_NAME = process.env.GOOGLE_AI_MODEL || "gemini-2.5-flash";
+const PREMIUM_MODEL_NAME = process.env.GOOGLE_PREMIUM_AI_MODEL || "gemini-3-pro-preview";
 
 // Retry configuration
 const MAX_RETRIES = 3;
@@ -29,7 +30,8 @@ async function sleep(ms: number): Promise<void> {
 export async function analyzeImage(
   imageBase64: string | string[],
   mimeType: string | string[],
-  language: SupportedLanguage = "en"
+  language: SupportedLanguage = "en",
+  isPremium: boolean
 ): Promise<ScanResult> {
   const prompt = getAnalysisPrompt(language);
 
@@ -65,9 +67,11 @@ export async function analyzeImage(
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       console.log(`Gemini API attempt ${attempt}/${MAX_RETRIES}`);
+      const modelToUse = isPremium ? PREMIUM_MODEL_NAME : MODEL_NAME;
+      console.log("Model used:", modelToUse);
 
       const response = await ai.models.generateContent({
-        model: MODEL_NAME,
+        model: modelToUse,
         contents: [
           {
             role: "user",

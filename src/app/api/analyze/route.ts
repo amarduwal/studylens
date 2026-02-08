@@ -54,10 +54,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
     const trackingUserId = session?.user?.id ? session.user.id : null;
     const trackingSessionId = sessionId || body.sessionId || null;
 
+    const isPremium = ['premium', 'enterprise'].includes(
+      session?.user?.subscriptionTier || ''
+    );
+
     // Check if user can upload multiple images (premium only)
     if (images.length > 1) {
       // Get user subscription tier from session
-      const isPremium = session?.user?.subscriptionTier === 'premium';
       if (!trackingUserId || !isPremium) {
         return NextResponse.json(
           {
@@ -120,7 +123,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeRe
       result = await analyzeImage(
         images.length === 1 ? images[0] : images,
         mimeTypes.length === 1 ? mimeTypes[0] : mimeTypes,
-        language as SupportedLanguage
+        language as SupportedLanguage,
+        isPremium
       );
     } catch (analysisError) {
       console.error("Primary analysis failed:", analysisError);
