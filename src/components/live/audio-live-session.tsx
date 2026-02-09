@@ -18,6 +18,8 @@ import {
   History,
   Plus,
   Pause,
+  Minimize2,
+  Maximize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GeminiLiveSession } from '@/lib/live/gemini-live-client';
@@ -118,6 +120,9 @@ export function AudioLiveSession({
   const [usedDuration, setUsedDuration] = useState(0);
 
   const [isPaused, setIsPaused] = useState(false);
+
+  const [isConversationFullscreen, setIsConversationFullscreen] =
+    useState(false);
 
   const {
     sessions: previousSessions,
@@ -237,6 +242,24 @@ export function AudioLiveSession({
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, []);
+
+  // Keyboard shortcut for fullscreen toggle
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to exit fullscreen
+      if (e.key === 'Escape' && isConversationFullscreen) {
+        setIsConversationFullscreen(false);
+      }
+      // Ctrl/Cmd + Shift + F to toggle fullscreen
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        setIsConversationFullscreen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isConversationFullscreen]);
 
   const addMessage = useCallback((message: LiveMessage) => {
     setMessages((prev) => {
@@ -1347,9 +1370,16 @@ export function AudioLiveSession({
 
           {/* Conversation Section */}
           {showTranscript && (
-            <div className="flex-1 flex flex-col border-t border-[hsl(var(--border))] bg-[hsl(var(--card))] min-h-0">
+            <div
+              className={cn(
+                'flex flex-col bg-[hsl(var(--card))] transition-all duration-300',
+                isConversationFullscreen
+                  ? 'fixed inset-0 z-50 max-w-2xl mx-auto'
+                  : 'flex-1 border-t border-[hsl(var(--border))] min-h-0',
+              )}
+            >
               {/* Messages Header */}
-              <div className="p-3 border-b border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
+              <div className="p-3 border-b border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)] flex items-center justify-between">
                 <h3 className="text-sm font-medium flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-[hsl(var(--primary))]" />
                   Conversation
@@ -1357,10 +1387,93 @@ export function AudioLiveSession({
                     ({messages.length})
                   </span>
                 </h3>
+
+                {/* Header Actions */}
+                <div className="flex items-center gap-2">
+                  {/* Fullscreen Toggle */}
+                  <button
+                    onClick={() =>
+                      setIsConversationFullscreen(!isConversationFullscreen)
+                    }
+                    className={cn(
+                      'p-1.5 rounded-lg transition-colors',
+                      isConversationFullscreen
+                        ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                        : 'hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]',
+                    )}
+                    title={
+                      isConversationFullscreen
+                        ? 'Exit fullscreen'
+                        : 'Fullscreen'
+                    }
+                  >
+                    {isConversationFullscreen ? (
+                      <Minimize2 className="w-4 h-4" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
+                  </button>
+
+                  {/* Close button in fullscreen */}
+                  {isConversationFullscreen && (
+                    <button
+                      onClick={() => setIsConversationFullscreen(false)}
+                      className="p-1.5 rounded-lg hover:bg-[hsl(var(--destructive))] hover:text-white transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
 
+              {/* Connection Status in Fullscreen */}
+              {isConversationFullscreen && connectionState === 'connected' && (
+                <div className="px-4 py-2 bg-[hsl(var(--muted)/0.2)] border-b border-[hsl(var(--border))] flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={cn(
+                        'w-2 h-2 rounded-full',
+                        isReconnecting
+                          ? 'bg-[hsl(var(--warning))] animate-pulse'
+                          : 'bg-[hsl(var(--success))]',
+                      )}
+                    />
+                    <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                      {isThinking
+                        ? 'Thinking...'
+                        : isAiSpeaking
+                          ? 'Speaking...'
+                          : 'Listening...'}
+                    </span>
+                  </div>
+
+                  {/* Timer in fullscreen */}
+                  {remainingTime !== null && remainingTime > 0 && (
+                    <span
+                      className={cn(
+                        'text-xs',
+                        remainingTime < 60
+                          ? 'text-[hsl(var(--destructive))]'
+                          : 'text-[hsl(var(--muted-foreground))]',
+                      )}
+                    >
+                      {Math.floor(remainingTime / 60)}:
+                      {Math.floor(remainingTime % 60)
+                        .toString()
+                        .padStart(2, '0')}{' '}
+                      remaining
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Messages List */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              <div
+                className={cn(
+                  'flex-1 overflow-y-auto p-3 space-y-3',
+                  isConversationFullscreen && 'p-4 md:p-6',
+                )}
+              >
                 {messages.length === 0 && !isThinking ? (
                   <div className="text-center text-[hsl(var(--muted-foreground))] py-8">
                     <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -1395,38 +1508,18 @@ export function AudioLiveSession({
               </div>
 
               {/* Text Input */}
-              <div className="p-3 border-t border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
-                <div className="flex gap-2 items-end">
-                  {/* <textarea
-                    value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      // Send on Enter, new line on Shift+Enter
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendText();
-                      }
-                    }}
-                    placeholder={
-                      connectionState === 'connected'
-                        ? 'Type a message... (Enter to send, Shift+Enter for new line)'
-                        : 'Connect first'
-                    }
-                    disabled={connectionState !== 'connected'}
-                    rows={1}
-                    className="flex-1 bg-[hsl(var(--background))] rounded-lg px-3 py-2 text-sm
-                 border border-[hsl(var(--input))] disabled:opacity-50
-                 resize-none min-h-[40px] max-h-[120px] overflow-y-auto"
-                    style={{
-                      height: 'auto',
-                    }}
-                    onInput={(e) => {
-                      // Auto-resize textarea
-                      const target = e.target as HTMLTextAreaElement;
-                      target.style.height = 'auto';
-                      target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
-                    }}
-                  /> */}
+              <div
+                className={cn(
+                  'p-3 border-t border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]',
+                  isConversationFullscreen && 'p-4 md:px-6',
+                )}
+              >
+                <div
+                  className={cn(
+                    'flex gap-2 items-end',
+                    isConversationFullscreen && 'max-w-3xl mx-auto',
+                  )}
+                >
                   <textarea
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
@@ -1436,7 +1529,6 @@ export function AudioLiveSession({
                         handleSendText();
                         return;
                       }
-                      // Shift+Enter → new line (allow growth)
                     }}
                     placeholder={
                       connectionState === 'connected'
@@ -1445,9 +1537,9 @@ export function AudioLiveSession({
                     }
                     disabled={connectionState !== 'connected'}
                     className="flex-1 min-h-[40px] max-h-[120px] bg-[hsl(var(--background))] rounded-lg px-4 py-3 text-sm border border-[hsl(var(--input))] disabled:opacity-50 resize-none transition-all"
-                    rows={1} // ✅ Start as single line input
+                    rows={1}
                     style={{ height: 'auto' }}
-                    ref={textareaRef} // Add ref
+                    ref={textareaRef}
                   />
                   <button
                     onClick={handleSendText}
@@ -1455,17 +1547,30 @@ export function AudioLiveSession({
                       connectionState !== 'connected' || !textInput.trim()
                     }
                     className="p-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                 rounded-lg disabled:opacity-50 transition-colors shrink-0 h-10 w-10
-                 flex items-center justify-center hover:bg-[hsl(var(--primary)/0.9)]"
+            rounded-lg disabled:opacity-50 transition-colors shrink-0 h-10 w-10
+            flex items-center justify-center hover:bg-[hsl(var(--primary)/0.9)]"
                   >
                     <Send className="w-4 h-4" />
                   </button>
                 </div>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1 text-right">
+                <p
+                  className={cn(
+                    'text-[10px] text-[hsl(var(--muted-foreground))] mt-1 text-right',
+                    isConversationFullscreen && 'max-w-3xl mx-auto',
+                  )}
+                >
                   Enter to send • Shift+Enter for new line
                 </p>
               </div>
             </div>
+          )}
+
+          {/* Fullscreen Backdrop */}
+          {isConversationFullscreen && (
+            <div
+              className="fixed inset-0 bg-black/50 z-40"
+              onClick={() => setIsConversationFullscreen(false)}
+            />
           )}
         </div>
         {connectionState === 'connected' && (
